@@ -59,5 +59,11 @@ The Build Spec §4.1 edge case "user doesn't respond to question 2 or 3" (stall 
 25. Check A2P 10DLC registration status (filed in Sprint 0, ~1–3 week window) — this is the sprint the Sprint Plan flags for that check-in; note whether it's cleared or still at risk of slipping Sprint 8.
 26. Deploy to `staging` and repeat the manual cold-onboarding test there before calling the sprint done.
 
+> **Status as of 26 Aug 2026 — all three blocked, Sprint 2 cannot be closed yet:**
+> - **24** — Not run. Local API server + ngrok tunnel were prepared, but the Console webhook step needs a deliberate follow-up session; also see the caveat below.
+> - **25** — Worse than "at risk": **no A2P registration has been filed.** The Twilio account is still Trial tier, and Twilio's A2P Brand Registration API explicitly refuses Trial accounts (`"not available on a Trial account. Please upgrade"`, error 20003). The Sprint 0 assumption that this was already filed was wrong.
+> - **26** — No staging environment exists. `infra/README.md`'s "staging environment" step is unprovisioned — there is nowhere to deploy to yet.
+> - **New finding, relevant to interpreting 24 once it runs:** confirmed live (both raw API and via the app's `twilio` SDK client) that this Trial-tier number silently overrides *any* outbound message body with a canned "Appointment Reminders" template — this is Twilio's trial anti-spam guardrail, separate from A2P. Until the account is upgraded and/or A2P-registered, the real onboarding reply copy will not reach a test phone even after the webhook is wired up — a "test passed" result would need to be read with that in mind.
+
 ---
 *Tally — Technical Design Doc 07 · Companion documents: 01 — Vision Brief · 02 — Build Spec · 03 — Architecture · 04 — Technical Implementation · 05 — Sprint Plan · 06 — Sprint 0 & 1 Breakdown*
