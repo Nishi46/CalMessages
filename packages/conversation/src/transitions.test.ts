@@ -16,6 +16,7 @@ describe('resolveTransition (07 §A, breakdown steps 4-5)', () => {
 
       expect(transition.toState).toBe(expectedToState);
       expect(transition.sideEffects.map((effect) => effect.type)).toEqual(expectedEffectTypes);
+      expect(transition.isFallback).toBeFalsy();
     },
   );
 
@@ -31,6 +32,7 @@ describe('resolveTransition (07 §A, breakdown steps 4-5)', () => {
     const transition = resolveTransition(fromState, trigger);
     expect(transition.toState).toBe(fromState);
     expect(transition.sideEffects).toEqual([]);
+    expect(transition.isFallback).toBe(true);
   });
 
   it('covers every ConversationState/Trigger combination without throwing', () => {

@@ -5,6 +5,11 @@ import type { SideEffect } from './sideEffect.js';
 export interface Transition {
   toState: ConversationState;
   sideEffects: SideEffect[];
+  // Set only on the sentinel returned for an undefined {state, trigger} pair
+  // (07 §D) — lets a caller like the router skip DB round-trips for a
+  // message that has no defined transition yet, without re-deriving the
+  // lookup-table logic to detect a no-op itself.
+  isFallback?: boolean;
 }
 
 function key(fromState: ConversationState, trigger: Trigger): string {
@@ -41,7 +46,7 @@ const TRANSITIONS: Record<string, Transition> = {
 // Same state, no side effects. A miss must never throw (04 §14) — an
 // undefined {state, trigger} pair is a safe no-op, not a crash.
 function fallbackTransition(fromState: ConversationState): Transition {
-  return { toState: fromState, sideEffects: [] };
+  return { toState: fromState, sideEffects: [], isFallback: true };
 }
 
 export function resolveTransition(fromState: ConversationState, trigger: Trigger): Transition {

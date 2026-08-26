@@ -11,7 +11,9 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.687.0",
     "@fastify/formbody": "^8.0.1",
+    "@tally/conversation": "*",
     "@tally/db-consumer": "*",
+    "@tally/messaging": "*",
     "fastify": "^5.1.0",
     "twilio": "^5.3.5"
   }

@@ -6,5 +6,9 @@
     "noEmit": false
   },
   "include": ["src"],
-  "references": [{ "path": "../../packages/db-consumer" }]
+  "references": [
+    { "path": "../../packages/db-consumer" },
+    { "path": "../../packages/conversation" },
+    { "path": "../../packages/messaging" }
+  ]
 }
