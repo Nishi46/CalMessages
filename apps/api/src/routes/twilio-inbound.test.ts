@@ -30,6 +30,7 @@ function noopDeps() {
     fetchMedia: vi.fn(),
     objectStore: { putObject: vi.fn() } satisfies ObjectStore,
     handleInboundMessage: vi.fn(),
+    updateMessageEventStatus: vi.fn(),
   };
 }
 
@@ -175,6 +176,7 @@ describe('POST /webhooks/twilio/inbound — against a real Postgres (breakdown s
       fetchMedia: vi.fn(),
       objectStore: { putObject: vi.fn() },
       handleInboundMessage: vi.fn(),
+      updateMessageEventStatus: vi.fn(),
     }, { logger: false });
 
     const first = await app.inject({ method: 'POST', url: PATH, headers, payload });

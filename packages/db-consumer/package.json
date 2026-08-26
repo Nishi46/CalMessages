@@ -12,6 +12,7 @@
     "migrate:down": "node-pg-migrate down -m migrations"
   },
   "dependencies": {
+    "@tally/shared-types": "*",
     "node-pg-migrate": "^7.9.1",
     "pg": "^8.13.1"
   },

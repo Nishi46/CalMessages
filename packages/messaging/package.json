@@ -7,5 +7,10 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc -b"
+  },
+  "dependencies": {
+    "@tally/db-consumer": "*",
+    "@tally/shared-types": "*",
+    "twilio": "^5.3.5"
   }
 }

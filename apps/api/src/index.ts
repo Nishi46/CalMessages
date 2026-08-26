@@ -1,3 +1,4 @@
+import { updateMessageEventStatusBySid } from '@tally/db-consumer';
 import { fetchTwilioMedia } from './lib/media.js';
 import { createS3ObjectStore } from './lib/objectStore.js';
 import { handleInboundMessage } from './lib/router.js';
@@ -30,6 +31,7 @@ const app = buildApp({
   fetchMedia: (mediaUrl) => fetchTwilioMedia(mediaUrl, accountSid, authToken),
   objectStore,
   handleInboundMessage,
+  updateMessageEventStatus: updateMessageEventStatusBySid,
 });
 
 app.listen({ port: Number(process.env.PORT ?? 3000), host: '0.0.0.0' }).catch((error: unknown) => {

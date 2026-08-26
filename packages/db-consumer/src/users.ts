@@ -58,6 +58,11 @@ export async function getUserByPhone(phoneE164: string): Promise<User | null> {
   return rows[0] ? rowToUser(rows[0]) : null;
 }
 
+export async function getUserById(id: string): Promise<User | null> {
+  const { rows } = await getPool().query<UserRow>(`SELECT * FROM "user" WHERE id = $1`, [id]);
+  return rows[0] ? rowToUser(rows[0]) : null;
+}
+
 export async function updateUserState(
   userId: string,
   conversationState: string,
