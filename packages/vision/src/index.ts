@@ -20,3 +20,7 @@ export type {
 export { createTextModelClient } from './textModelClient.js';
 export type { ParseDeps } from './parse.js';
 export { createTextParser } from './parse.js';
+export type { MacroToleranceBand, TextGoldenFixture } from './goldenSet/textFixtures.js';
+export { TEXT_GOLDEN_FIXTURES } from './goldenSet/textFixtures.js';
+export type { GoldenSetResult } from './goldenSet/runGoldenSet.js';
+export { runGoldenSet } from './goldenSet/runGoldenSet.js';
