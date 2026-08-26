@@ -41,6 +41,19 @@ describe('sendMessage (breakdown step 28, against a real Postgres)', () => {
     expect(client.send).not.toHaveBeenCalled();
   });
 
+  it('marks the row failed and rethrows when the Twilio API call itself throws', async () => {
+    const user = await createUser(`+1${Date.now()}2`);
+    const client: TwilioSendClient = { send: vi.fn().mockRejectedValue(new Error('twilio down')) };
+
+    await expect(sendMessage(client, user.id, 'hi', 'nudge')).rejects.toThrow('twilio down');
+
+    const { rows } = await getPool().query<{ delivery_status: string }>(
+      'SELECT delivery_status FROM message_event WHERE user_id = $1',
+      [user.id],
+    );
+    expect(rows[0]?.delivery_status).toBe('failed');
+  });
+
   afterAll(async () => {
     await getPool().end();
   });

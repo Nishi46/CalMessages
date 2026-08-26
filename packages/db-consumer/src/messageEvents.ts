@@ -64,13 +64,37 @@ export async function updateMessageEventTwilioSid(
   return rowToMessageEvent(rows[0]);
 }
 
+// Used when a send fails before Twilio ever returns a sid, so there's nothing
+// to key an UPDATE ... WHERE twilio_sid = $1 off of yet.
+export async function updateMessageEventStatus(
+  id: string,
+  deliveryStatus: string,
+): Promise<MessageEvent> {
+  const { rows } = await getPool().query<MessageEventRow>(
+    `UPDATE message_event SET delivery_status = $2 WHERE id = $1 RETURNING *`,
+    [id, deliveryStatus],
+  );
+  return rowToMessageEvent(rows[0]);
+}
+
+// Twilio delivers status callbacks out of order (documented behavior), so a
+// delayed earlier-stage callback (e.g. "sent") can arrive after a later one
+// ("delivered") already landed. Once a message reaches a terminal status, that
+// status is locked — it's the actual final outcome the deliverability metric
+// (04 §12) reads, and nothing later should be able to regress it.
+const TERMINAL_DELIVERY_STATUSES = ['delivered', 'failed', 'undelivered'];
+
 export async function updateMessageEventStatusBySid(
   twilioSid: string,
   deliveryStatus: string,
 ): Promise<MessageEvent | null> {
   const { rows } = await getPool().query<MessageEventRow>(
-    `UPDATE message_event SET delivery_status = $2 WHERE twilio_sid = $1 RETURNING *`,
-    [twilioSid, deliveryStatus],
+    `UPDATE message_event
+     SET delivery_status = $2
+     WHERE twilio_sid = $1
+       AND (delivery_status IS NULL OR NOT (delivery_status = ANY($3::text[])))
+     RETURNING *`,
+    [twilioSid, deliveryStatus, TERMINAL_DELIVERY_STATUSES],
   );
   return rows[0] ? rowToMessageEvent(rows[0]) : null;
 }
