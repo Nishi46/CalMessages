@@ -15,6 +15,13 @@ function requireEnv(name: string): string {
 }
 
 const accountSid = requireEnv('TWILIO_ACCOUNT_SID');
+if (!accountSid.startsWith('AC')) {
+  throw new Error(
+    "TWILIO_ACCOUNT_SID must be the Account SID from the Twilio Console (starts with 'AC') — " +
+      "not an API Key SID (starts with 'SK'). Using the wrong one fails both outbound sends " +
+      'and inbound webhook signature verification.',
+  );
+}
 const authToken = requireEnv('TWILIO_AUTH_TOKEN');
 const publicBaseUrl = requireEnv('PUBLIC_BASE_URL');
 const fromNumber = requireEnv('TWILIO_PHONE_NUMBER');
