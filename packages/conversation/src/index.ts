@@ -11,3 +11,9 @@ export {
   captureStartingPointAnswer,
   captureReferralAnswer,
 } from './onboardingAnswers.js';
+export type { TemplateId } from './templates.js';
+export { TEMPLATES, renderTemplate } from './templates.js';
+export type { ComputedGoal } from './computeDefaultGoal.js';
+export { computeDefaultGoal } from './computeDefaultGoal.js';
+export type { SideEffectDeps } from './applySideEffects.js';
+export { applySideEffects } from './applySideEffects.js';
