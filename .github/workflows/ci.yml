@@ -8,6 +8,22 @@ on:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: tally_consumer
+          POSTGRES_USER: tally
+          POSTGRES_PASSWORD: tally_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL_CONSUMER: postgresql://tally:tally_dev@localhost:5432/tally_consumer
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -17,5 +33,8 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
+      - run: npm run migrate:up --workspace=@tally/db-consumer
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL_CONSUMER }}
       - run: npm run test
       - run: npm run build
