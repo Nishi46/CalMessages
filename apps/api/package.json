@@ -5,6 +5,14 @@
   "type": "module",
   "scripts": {
     "build": "tsc -b",
-    "dev": "tsc -b --watch"
+    "dev": "tsc -b --watch",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.687.0",
+    "@fastify/formbody": "^8.0.1",
+    "@tally/db-consumer": "*",
+    "fastify": "^5.1.0",
+    "twilio": "^5.3.5"
   }
 }
