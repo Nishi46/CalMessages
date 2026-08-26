@@ -1,25 +1,14 @@
+import type { RawCandidateItem, RawCandidateSignals } from './assembleCandidate.js';
 import type { Photo } from './photoSource.js';
 
-export interface RawVisionItem {
-  name: string;
-  portion: string;
-  calories: number;
-  protein: number;
-  carbs: number;
-  fat: number;
-  certainty: number; // model-reported, per item, 0-1
-}
+export type RawVisionItem = RawCandidateItem;
 
-export interface RawVisionAnalysis {
+export interface RawVisionAnalysis extends RawCandidateSignals {
   isFood: boolean;
   // Too dark/blurry to assess (04 §5.3) — only meaningful when isFood is true;
   // a provider that already says "not food" has no separate quality opinion.
   unassessable: boolean;
   items: RawVisionItem[];
-  // Present only when the provider's own response exposes these directly.
-  // When it doesn't, the caller falls back to a heuristic (08 §C step 9).
-  dishCategory?: 'packaged' | 'home_cooked' | 'mixed';
-  hasPortionReference?: boolean;
 }
 
 export interface VisionModelClient {
