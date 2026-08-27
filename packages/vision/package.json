@@ -6,7 +6,8 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsc -b"
+    "build": "tsc -b",
+    "manual:recognize": "node dist/scripts/manual-recognize.js"
   },
   "dependencies": {
     "@tally/shared-types": "*"
