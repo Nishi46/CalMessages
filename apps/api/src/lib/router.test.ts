@@ -537,6 +537,131 @@ describe('createInboundMessageHandler — correction/edit resolution (09 §E)', 
     const current = await getUserByPhone(phone);
     expect(current?.conversationState).toBe('idle');
   });
+});
+
+// 09 §G step 30: the whole sprint's fast path, told as continuous
+// user-facing scripts rather than isolated assertions — each turn re-reads
+// the user's persisted state the way the real webhook route does, so a
+// multi-turn scenario (script 2) exercises the actual state hand-off
+// between turns, not just each half in isolation.
+describe('handleInboundMessage — end-to-end scripted flows (09 §G, breakdown step 30)', () => {
+  it('photo -> high-confidence log reply', async () => {
+    const phone = `+1${Date.now()}17`;
+    const user = await createUser(phone);
+    await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
+    const sendClient = fakeSendClient();
+    const handleInboundMessage = createInboundMessageHandler({
+      sendClient,
+      visionProvider: fakeVisionProvider(vi.fn().mockResolvedValue(fakeCandidate({ confidence: 'high' }))),
+      textParser: noTextParser(),
+    });
+
+    await handleInboundMessage({ userId: user.id, photoKey: 'meal-photos/e2e-1', currentState: 'idle' });
+
+    const [, body] = sendClient.send.mock.calls[0] as [string, string];
+    expect(body).toContain('Logged: 210 cal');
+
+    const current = await getUserByPhone(phone);
+    expect(current?.conversationState).toBe('idle');
+  });
+
+  it('photo -> low-confidence clarifying question -> answer -> completed log', async () => {
+    const phone = `+1${Date.now()}18`;
+    const user = await createUser(phone);
+    await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
+    const sendClient = fakeSendClient();
+    const lowConfidenceCandidate = fakeCandidate({ confidence: 'low', confidenceNote: 'blurry photo' });
+    const handleInboundMessage = createInboundMessageHandler({
+      sendClient,
+      visionProvider: fakeVisionProvider(vi.fn().mockResolvedValue(lowConfidenceCandidate)),
+      textParser: noTextParser(),
+    });
+
+    // Turn 1: photo comes back low-confidence — held, not logged yet.
+    await handleInboundMessage({ userId: user.id, photoKey: 'meal-photos/e2e-2', currentState: 'idle' });
+
+    const [, firstReply] = sendClient.send.mock.calls[0] as [string, string];
+    expect(firstReply).toContain('blurry photo');
+    expect(firstReply).not.toContain('Logged:');
+
+    const afterTurn1 = await getUserByPhone(phone);
+    expect(afterTurn1?.conversationState).toBe('awaiting_clarification');
+    const rowsAfterTurn1 = await getPool().query('SELECT * FROM meal_log WHERE user_id = $1', [user.id]);
+    expect(rowsAfterTurn1.rows).toHaveLength(0);
+
+    // Turn 2: the clarifying answer arrives — re-reads the state turn 1 just
+    // persisted, exactly as the webhook route would for the next inbound
+    // message from the same user.
+    await handleInboundMessage({
+      userId: user.id,
+      text: 'it was 3 scrambled eggs',
+      currentState: afterTurn1!.conversationState,
+    });
+
+    const [, secondReply] = sendClient.send.mock.calls[1] as [string, string];
+    expect(secondReply).toContain('Logged: 210 cal');
+
+    const afterTurn2 = await getUserByPhone(phone);
+    expect(afterTurn2?.conversationState).toBe('idle');
+    const rowsAfterTurn2 = await getPool().query('SELECT * FROM meal_log WHERE user_id = $1', [user.id]);
+    expect(rowsAfterTurn2.rows).toHaveLength(1);
+  });
+
+  it('text correction referencing "yesterday\'s lunch" -> corrected entry with the right date\'s total', async () => {
+    const phone = `+1${Date.now()}19`;
+    const user = await createUser(phone);
+    await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
+    const today = computeLocalDate(new Date(), user.timezone);
+    const yesterday = computeLocalDate(new Date(Date.now() - 24 * 60 * 60 * 1000), user.timezone);
+    await createMealLog(user.id, fakeCandidate({ calories: 500 }), 'photo', yesterday);
+    const sendClient = fakeSendClient();
+    const handleInboundMessage = createInboundMessageHandler({
+      sendClient,
+      visionProvider: noVisionProvider(),
+      textParser: fakeTextParser(vi.fn().mockResolvedValue(fakeCandidate({ calories: 350 }))),
+    });
+
+    await handleInboundMessage({
+      userId: user.id,
+      text: "that was actually yesterday's lunch, smaller portion",
+      currentState: 'idle',
+    });
+
+    const [, body] = sendClient.send.mock.calls[0] as [string, string];
+    expect(body).toContain('Updated — that entry is now 350 cal');
+    // 500 (original, still live) + 350 (correction) — yesterday's total, not today's.
+    expect(body).toContain('Total for that day is now 850 cal.');
+
+    const todayTotals = await getDailyTotals(user.id, today);
+    expect(todayTotals.calories).toBe(0);
+  });
+
+  it('"delete that" -> soft-deleted entry, totals updated', async () => {
+    const phone = `+1${Date.now()}20`;
+    const user = await createUser(phone);
+    await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
+    const today = computeLocalDate(new Date(), user.timezone);
+    const log = await createMealLog(user.id, fakeCandidate({ calories: 300 }), 'photo', today);
+    const sendClient = fakeSendClient();
+    const handleInboundMessage = createInboundMessageHandler({
+      sendClient,
+      visionProvider: noVisionProvider(),
+      textParser: noTextParser(),
+    });
+
+    await handleInboundMessage({ userId: user.id, text: 'delete that', currentState: 'idle' });
+
+    const [, body] = sendClient.send.mock.calls[0] as [string, string];
+    expect(body).toBe('Deleted. Total for that day is now 0 cal.');
+
+    const { rows } = await getPool().query<{ soft_deleted_at: Date | null }>(
+      'SELECT soft_deleted_at FROM meal_log WHERE id = $1',
+      [log.id],
+    );
+    expect(rows[0]?.soft_deleted_at).not.toBeNull();
+    const totals = await getDailyTotals(user.id, today);
+    expect(totals.calories).toBe(0);
+  });
 
   afterAll(async () => {
     await getPool().end();
