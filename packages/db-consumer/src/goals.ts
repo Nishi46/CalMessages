@@ -51,3 +51,14 @@ export async function createGoal(userId: string, goal: NewGoal): Promise<Goal> {
   );
   return rowToGoal(rows[0]);
 }
+
+// Needed for the "Today: 1,180/1,650 cal" line in every full-confidence meal
+// reply (09 §A step 2's own forward reference) — the denominator is the
+// user's current (not superseded) goal.
+export async function getCurrentGoal(userId: string): Promise<Goal | null> {
+  const { rows } = await getPool().query<GoalRow>(
+    `SELECT * FROM goal WHERE user_id = $1 AND superseded_at IS NULL ORDER BY set_at DESC LIMIT 1`,
+    [userId],
+  );
+  return rows[0] ? rowToGoal(rows[0]) : null;
+}

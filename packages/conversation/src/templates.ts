@@ -9,14 +9,33 @@ export const TEMPLATES = {
   onboarding_q3: 'Last one — did a coach or clinic refer you? If not, just say no.',
   onboarding_goal_confirmation:
     'I\'ll set you at {dailyCalories} cal and {dailyProtein}g protein a day — easy to change anytime, just text "change my goal." Send me a photo of your next meal whenever you\'re ready.',
-  // Minimal starter copy for the transitions 09 §C step 11-13 add — macros
-  // only, no per-item breakdown or running daily total yet. 09 §F step 25
-  // is where these get expanded to the full Build Spec §4.2/§4.3 replies.
-  meal_logged: 'Logged: {calories} cal, {protein}g protein, {carbs}g carbs, {fat}g fat.',
-  meal_clarifying_question: "Got a partial read — {confidenceNote} What was it, roughly?",
+  // Macros, an optional per-item breakdown ('' when there's only one item —
+  // 09 §D step 17, Build Spec §4.2: "break the reply out by item... so a
+  // later correction can target one item"), and the running daily total
+  // against the user's goal (09 §A step 2's own forward reference to this
+  // exact line).
+  meal_logged:
+    'Logged: {calories} cal, {protein}g protein, {carbs}g carbs, {fat}g fat.{itemBreakdown}\n\nToday: {todayCalories}/{goalCalories} cal so far.',
+  // Never both a guess and a hedge in the same reply (Build Spec §4.2) — no
+  // macros here, just the one clarifying question.
+  meal_clarifying_question: 'Got a partial read — {confidenceNote} What was it, roughly?',
+  meal_non_food: "That doesn't look like food to me, so I didn't log anything. Send a photo whenever you're ready.",
+  meal_unassessable:
+    "Couldn't quite make that out — mind sending a clearer photo, or just describing what it was?",
+  // Sent immediately when the recognize()/parse() call is slow or fails
+  // outright (09 §D step 20, Architecture §7's "never silently drop an
+  // inbound photo") — the log itself completes once the call actually
+  // resolves.
+  meal_holding_reply_photo: "Got your photo, one sec...",
+  meal_holding_reply_text: 'Got it, one sec...',
+  // "Total for that day" (dayCalories) is the corrected entry's own date,
+  // not today's — they only differ when the correction referenced a prior
+  // day (09 §E step 24, Build Spec §4.3).
   correction_confirmed:
-    'Updated — that entry is now {calories} cal, {protein}g protein, {carbs}g carbs, {fat}g fat.',
+    'Updated — that entry is now {calories} cal, {protein}g protein, {carbs}g carbs, {fat}g fat. Total for that day is now {dayCalories} cal.',
+  delete_confirmed: 'Deleted. Total for that day is now {dayCalories} cal.',
   correction_disambiguation: 'I found a few recent entries that could match — which one did you mean?',
+  correction_not_found: "I couldn't find anything recent to correct.",
 } as const satisfies Record<string, string>;
 
 export type TemplateId = keyof typeof TEMPLATES;

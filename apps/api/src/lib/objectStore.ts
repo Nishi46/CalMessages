@@ -1,8 +1,17 @@
 import { randomUUID } from 'node:crypto';
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+
+export interface StoredObject {
+  bytes: Uint8Array;
+  contentType: string;
+}
 
 export interface ObjectStore {
   putObject(buffer: Buffer, contentType: string): Promise<string>;
+  // Feeds VisionProvider.recognize()'s FetchByKey (09 §D step 15) — reads
+  // back the photo this same store wrote at inbound-webhook time, keyed by
+  // the object key persisted on the meal_content trigger's payload.
+  getObject(key: string): Promise<StoredObject>;
 }
 
 export interface S3ObjectStoreConfig {
@@ -38,6 +47,11 @@ export function createS3ObjectStore(config: S3ObjectStoreConfig): ObjectStore {
         }),
       );
       return key;
+    },
+    async getObject(key) {
+      const result = await client.send(new GetObjectCommand({ Bucket: config.bucket, Key: key }));
+      const bytes = (await result.Body?.transformToByteArray()) ?? new Uint8Array();
+      return { bytes, contentType: result.ContentType ?? 'application/octet-stream' };
     },
   };
 }

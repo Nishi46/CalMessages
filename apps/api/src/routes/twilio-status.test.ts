@@ -29,7 +29,7 @@ function buildTestApp(updateMessageEventStatus: (sid: string, status: string) =>
       publicBaseUrl: PUBLIC_BASE_URL,
       resolveOrCreateUser: vi.fn(),
       fetchMedia: vi.fn(),
-      objectStore: { putObject: vi.fn() },
+      objectStore: { putObject: vi.fn(), getObject: vi.fn() },
       handleInboundMessage: vi.fn(),
       updateMessageEventStatus,
     },

@@ -9,6 +9,8 @@
   "references": [
     { "path": "../../packages/db-consumer" },
     { "path": "../../packages/conversation" },
-    { "path": "../../packages/messaging" }
+    { "path": "../../packages/messaging" },
+    { "path": "../../packages/time" },
+    { "path": "../../packages/vision" }
   ]
 }

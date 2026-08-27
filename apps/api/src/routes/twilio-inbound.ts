@@ -59,11 +59,20 @@ export function registerTwilioInboundRoute(app: FastifyInstance, deps: TwilioInb
         photoKey = await deps.objectStore.putObject(media.buffer, media.contentType);
       }
 
-      await deps.handleInboundMessage({
+      // Not awaited: the meal_content path can block on a multi-second
+      // vision call (09 §D step 19), and Twilio retries a webhook that
+      // doesn't respond promptly — awaiting here would risk the same
+      // inbound message being processed twice. Replies go out async via the
+      // REST API regardless (04 §4.1 step 6), so the TwiML response itself
+      // never needed to wait on this. The .catch keeps a rejection from
+      // vanishing as a silent, unhandled promise rejection.
+      void deps.handleInboundMessage({
         userId: user.id,
         text: body.Body,
         photoKey,
         currentState: user.conversationState,
+      }).catch((error: unknown) => {
+        request.log.error(error, 'handleInboundMessage failed');
       });
 
       reply.header('Content-Type', 'text/xml');

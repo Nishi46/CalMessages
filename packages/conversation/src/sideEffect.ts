@@ -19,4 +19,7 @@ export type SideEffect =
   | { type: 'createGoal' }
   | { type: 'writeMealLog' }
   | { type: 'holdCandidate'; candidate: MealCandidate }
-  | { type: 'writeCorrection'; targetLogId: string };
+  | { type: 'writeCorrection'; targetLogId: string }
+  // "Delete that" with no replacement value (09 §E step 23) — kept
+  // distinct from writeCorrection since there's no MealCandidate to write.
+  | { type: 'deleteMealLog'; targetLogId: string };

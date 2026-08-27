@@ -1,5 +1,6 @@
 import { updateMessageEventStatusBySid } from '@tally/db-consumer';
 import { createTwilioSendClient } from '@tally/messaging';
+import { createTextModelClient, createTextParser, createVisionModelClient, createVisionProvider } from '@tally/vision';
 import { fetchTwilioMedia } from './lib/media.js';
 import { createS3ObjectStore } from './lib/objectStore.js';
 import { createInboundMessageHandler } from './lib/router.js';
@@ -25,6 +26,7 @@ if (!accountSid.startsWith('AC')) {
 const authToken = requireEnv('TWILIO_AUTH_TOKEN');
 const publicBaseUrl = requireEnv('PUBLIC_BASE_URL');
 const fromNumber = requireEnv('TWILIO_PHONE_NUMBER');
+const visionProviderApiKey = requireEnv('VISION_PROVIDER_API_KEY');
 
 const objectStore = createS3ObjectStore({
   endpoint: requireEnv('S3_ENDPOINT'),
@@ -34,7 +36,22 @@ const objectStore = createS3ObjectStore({
 });
 
 const sendClient = createTwilioSendClient({ accountSid, authToken, fromNumber });
-const handleInboundMessage = createInboundMessageHandler({ sendClient });
+
+// Same provider, two thin clients (04 §5.1: "the same or a lighter hosted
+// model" for text) — recognize()'s FetchByKey reads back whatever the
+// inbound webhook already wrote to the object store, keyed by photoKey.
+const visionProvider = createVisionProvider({
+  fetchByKey: async (photoKey) => {
+    const object = await objectStore.getObject(photoKey);
+    return { bytes: object.bytes, contentType: object.contentType };
+  },
+  visionClient: createVisionModelClient({ apiKey: visionProviderApiKey }),
+});
+const textParser = createTextParser({
+  textClient: createTextModelClient({ apiKey: visionProviderApiKey }),
+});
+
+const handleInboundMessage = createInboundMessageHandler({ sendClient, visionProvider, textParser });
 
 const app = buildApp({
   authToken,

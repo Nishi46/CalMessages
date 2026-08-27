@@ -9,19 +9,45 @@ export interface MacroTotals {
   fat: number;
 }
 
+// Everything the meal_logged template (09 §D step 17) interpolates: the
+// just-logged macros, the day's running totals, the goal denominator for
+// the "Today: X/Y cal" line (Build Spec §4.2), and a pre-composed per-item
+// breakdown ('' when there's only one item) — built by the caller since the
+// flat {placeholder} template system can't loop over a variable-length list
+// itself.
+export interface MealLogWriteResult extends MacroTotals {
+  todayCalories: number;
+  todayProtein: number;
+  todayCarbs: number;
+  todayFat: number;
+  goalCalories: number | string;
+  itemBreakdown: string;
+}
+
+// What correction_confirmed / delete_confirmed interpolate: the affected
+// entry's own macros, plus the running total for *that entry's own date*
+// rather than today's (09 §E step 24 — they only differ when the
+// correction/delete referenced a prior day).
+export interface CorrectionWriteResult extends MacroTotals {
+  dayCalories: number;
+  dayProtein: number;
+  dayCarbs: number;
+  dayFat: number;
+}
+
 export interface SideEffectDeps {
   sendReply: (text: string) => Promise<void>;
   mergeContext: (patch: Record<string, unknown>) => Promise<void>;
   createGoal: () => Promise<{ dailyCalories: number; dailyProtein: number }>;
   // Optional: unlike createGoal, no currently-wired transition in the flat
   // TRANSITIONS table reaches these outside of Sprint 4's router wiring (09
-  // §D — not yet built), so a caller like today's apps/api router isn't
-  // forced to supply them until it actually needs to. applySideEffects
-  // throws a clear error below if one of these effects fires without its
-  // dep, rather than silently dropping a meal-log write.
-  writeMealLog?: () => Promise<MacroTotals>;
+  // §D/§E), so a caller isn't forced to supply them until it actually needs
+  // to. applySideEffects throws a clear error below if one of these effects
+  // fires without its dep, rather than silently dropping a meal-log write.
+  writeMealLog?: () => Promise<MealLogWriteResult>;
   holdCandidate?: (candidate: MealCandidate) => Promise<void>;
-  writeCorrection?: (targetLogId: string) => Promise<MacroTotals>;
+  writeCorrection?: (targetLogId: string) => Promise<CorrectionWriteResult>;
+  deleteMealLog?: (targetLogId: string) => Promise<CorrectionWriteResult>;
 }
 
 // Executes a transition's side effects in order against injected deps, so
@@ -72,6 +98,14 @@ export async function applySideEffects(effects: SideEffect[], deps: SideEffectDe
           throw new Error('applySideEffects: writeCorrection effect fired without deps.writeCorrection');
         }
         const totals = await deps.writeCorrection(effect.targetLogId);
+        runtimeVars = { ...runtimeVars, ...totals };
+        break;
+      }
+      case 'deleteMealLog': {
+        if (!deps.deleteMealLog) {
+          throw new Error('applySideEffects: deleteMealLog effect fired without deps.deleteMealLog');
+        }
+        const totals = await deps.deleteMealLog(effect.targetLogId);
         runtimeVars = { ...runtimeVars, ...totals };
         break;
       }

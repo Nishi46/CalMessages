@@ -99,23 +99,43 @@ export type CorrectionMatch =
   | { kind: 'single'; targetLogId: string }
   | { kind: 'multiple'; candidateLogIds: string[] };
 
+// "Delete that" with no replacement value resolves the same way as a
+// value-replacement correction, but writes a delete instead (09 §E step
+// 23) — the intent is captured in the disambiguation hold too (via
+// PendingContext), since it's only known here and would otherwise be lost
+// by the time an answer resolves which log was meant.
+export type CorrectionIntent = 'correct' | 'delete';
+
 // idle:correction has the same runtime-data-dependent shape as
 // idle:meal_content (09 §C step 13) — how many plausible correction targets
 // resolveCorrectionTarget (09 §E) finds decides the branch: a single match
-// writes the correction directly; more than one reuses awaiting_clarification
-// as a disambiguation hold rather than adding a tenth state. The router
-// resolves the match first, then calls this instead of resolveTransition for
-// the correction trigger.
-export function resolveCorrectionTransition(match: CorrectionMatch): Transition {
+// writes the correction (or delete) directly; more than one reuses
+// awaiting_clarification as a disambiguation hold rather than adding a
+// tenth state. The router resolves the match first, then calls this
+// instead of resolveTransition for the correction trigger.
+export function resolveCorrectionTransition(
+  match: CorrectionMatch,
+  intent: CorrectionIntent = 'correct',
+): Transition {
   if (match.kind === 'multiple') {
     return {
       toState: 'awaiting_clarification',
       sideEffects: [
         {
           type: 'mergeContext',
-          patch: { pendingKind: 'correction_target', candidateLogIds: match.candidateLogIds },
+          patch: { pendingKind: 'correction_target', candidateLogIds: match.candidateLogIds, intent },
         },
         { type: 'sendReply', template: 'correction_disambiguation' },
+      ],
+    };
+  }
+
+  if (intent === 'delete') {
+    return {
+      toState: 'idle',
+      sideEffects: [
+        { type: 'deleteMealLog', targetLogId: match.targetLogId },
+        { type: 'sendReply', template: 'delete_confirmed' },
       ],
     };
   }

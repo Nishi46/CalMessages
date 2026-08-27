@@ -14,3 +14,15 @@ const CORRECTION_PATTERNS: RegExp[] = [
 export function isCorrectionText(text: string): boolean {
   return CORRECTION_PATTERNS.some((pattern) => pattern.test(text));
 }
+
+// "Delete that" with no replacement value resolves differently from a
+// value-replacement correction — it calls softDeleteMealLog instead of
+// writeCorrection (09 §E step 23). Checked before the general correction
+// match, so callers must consult this first. "undo" is grouped here rather
+// than under the general correction patterns above — it only makes sense as
+// a request to remove the last entry, not to supply a replacement value.
+const DELETE_PATTERNS: RegExp[] = [/\bdelete that\b/i, /\bundo\b/i];
+
+export function isDeleteText(text: string): boolean {
+  return DELETE_PATTERNS.some((pattern) => pattern.test(text));
+}

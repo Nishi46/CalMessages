@@ -10,14 +10,45 @@ function fakeDeps(): SideEffectDeps & {
   writeMealLog: ReturnType<typeof vi.fn>;
   holdCandidate: ReturnType<typeof vi.fn>;
   writeCorrection: ReturnType<typeof vi.fn>;
+  deleteMealLog: ReturnType<typeof vi.fn>;
 } {
   return {
     sendReply: vi.fn().mockResolvedValue(undefined),
     mergeContext: vi.fn().mockResolvedValue(undefined),
     createGoal: vi.fn().mockResolvedValue({ dailyCalories: 1650, dailyProtein: 120 }),
-    writeMealLog: vi.fn().mockResolvedValue({ calories: 400, protein: 30, carbs: 10, fat: 20 }),
+    writeMealLog: vi.fn().mockResolvedValue({
+      calories: 400,
+      protein: 30,
+      carbs: 10,
+      fat: 20,
+      todayCalories: 1180,
+      todayProtein: 90,
+      todayCarbs: 60,
+      todayFat: 40,
+      goalCalories: 1650,
+      itemBreakdown: '',
+    }),
     holdCandidate: vi.fn().mockResolvedValue(undefined),
-    writeCorrection: vi.fn().mockResolvedValue({ calories: 450, protein: 35, carbs: 12, fat: 22 }),
+    writeCorrection: vi.fn().mockResolvedValue({
+      calories: 450,
+      protein: 35,
+      carbs: 12,
+      fat: 22,
+      dayCalories: 1900,
+      dayProtein: 150,
+      dayCarbs: 80,
+      dayFat: 60,
+    }),
+    deleteMealLog: vi.fn().mockResolvedValue({
+      calories: 210,
+      protein: 18,
+      carbs: 2,
+      fat: 15,
+      dayCalories: 970,
+      dayProtein: 72,
+      dayCarbs: 58,
+      dayFat: 45,
+    }),
   };
 }
 
@@ -108,7 +139,9 @@ describe('applySideEffects — Sprint 4 meal-log side effects (09 §C, breakdown
     );
 
     expect(deps.writeMealLog).toHaveBeenCalledTimes(1);
-    expect(deps.sendReply).toHaveBeenCalledWith('Logged: 400 cal, 30g protein, 10g carbs, 20g fat.');
+    expect(deps.sendReply).toHaveBeenCalledWith(
+      'Logged: 400 cal, 30g protein, 10g carbs, 20g fat.\n\nToday: 1180/1650 cal so far.',
+    );
   });
 
   it('calls holdCandidate with the effect candidate verbatim', async () => {
@@ -133,14 +166,30 @@ describe('applySideEffects — Sprint 4 meal-log side effects (09 §C, breakdown
 
     expect(deps.writeCorrection).toHaveBeenCalledWith('log-1');
     expect(deps.sendReply).toHaveBeenCalledWith(
-      'Updated — that entry is now 450 cal, 35g protein, 12g carbs, 22g fat.',
+      'Updated — that entry is now 450 cal, 35g protein, 12g carbs, 22g fat. Total for that day is now 1900 cal.',
     );
+  });
+
+  it('threads deleteMealLog totals into a following sendReply', async () => {
+    const deps = fakeDeps();
+
+    await applySideEffects(
+      [
+        { type: 'deleteMealLog', targetLogId: 'log-1' },
+        { type: 'sendReply', template: 'delete_confirmed' },
+      ],
+      deps,
+    );
+
+    expect(deps.deleteMealLog).toHaveBeenCalledWith('log-1');
+    expect(deps.sendReply).toHaveBeenCalledWith('Deleted. Total for that day is now 970 cal.');
   });
 
   it.each([
     ['writeMealLog', [{ type: 'writeMealLog' }]],
     ['holdCandidate', [{ type: 'holdCandidate', candidate: fakeCandidate() }]],
     ['writeCorrection', [{ type: 'writeCorrection', targetLogId: 'log-1' }]],
+    ['deleteMealLog', [{ type: 'deleteMealLog', targetLogId: 'log-1' }]],
   ] satisfies Array<[string, SideEffect[]]>)(
     'throws a clear error when %s fires without its dep, instead of silently dropping the write',
     async (depName, effects) => {

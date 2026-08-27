@@ -28,8 +28,8 @@ function noopDeps() {
     publicBaseUrl: PUBLIC_BASE_URL,
     resolveOrCreateUser: vi.fn(),
     fetchMedia: vi.fn(),
-    objectStore: { putObject: vi.fn() } satisfies ObjectStore,
-    handleInboundMessage: vi.fn(),
+    objectStore: { putObject: vi.fn(), getObject: vi.fn() } satisfies ObjectStore,
+    handleInboundMessage: vi.fn().mockResolvedValue(undefined),
     updateMessageEventStatus: vi.fn(),
   };
 }
@@ -155,6 +155,37 @@ describe('POST /webhooks/twilio/inbound', () => {
     expect(deps.fetchMedia).not.toHaveBeenCalled();
     expect(deps.objectStore.putObject).not.toHaveBeenCalled();
   });
+
+  it('returns the TwiML response without waiting on handleInboundMessage, and logs a rejection instead of swallowing it (breakdown step 19)', async () => {
+    const params = { From: '+15551234571', Body: 'chicken and rice' };
+    const url = `${PUBLIC_BASE_URL}${PATH}`;
+    const signature = computeTwilioSignature(AUTH_TOKEN, url, params);
+
+    const deps = noopDeps();
+    deps.resolveOrCreateUser.mockResolvedValue({ id: 'user-4', conversationState: 'idle' });
+    // Constructed lazily inside the call, not before — a pre-built rejected
+    // promise can trip Node's unhandled-rejection detector in the gap
+    // before Fastify's async pipeline actually invokes the mock and the
+    // route's own .catch attaches.
+    deps.handleInboundMessage.mockImplementation(() => Promise.reject(new Error('boom')));
+    const app = buildApp(deps, { logger: false });
+    const errorSpy = vi.spyOn(app.log, 'error').mockImplementation(() => {});
+
+    const response = await app.inject({
+      method: 'POST',
+      url: PATH,
+      headers: {
+        'x-twilio-signature': signature,
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      payload: new URLSearchParams(params).toString(),
+    });
+
+    expect(response.statusCode).toBe(200);
+
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(errorSpy).toHaveBeenCalledWith(expect.any(Error), 'handleInboundMessage failed');
+  });
 });
 
 describe('POST /webhooks/twilio/inbound — against a real Postgres (breakdown step 20)', () => {
@@ -174,8 +205,8 @@ describe('POST /webhooks/twilio/inbound — against a real Postgres (breakdown s
       publicBaseUrl: PUBLIC_BASE_URL,
       resolveOrCreateUser,
       fetchMedia: vi.fn(),
-      objectStore: { putObject: vi.fn() },
-      handleInboundMessage: vi.fn(),
+      objectStore: { putObject: vi.fn(), getObject: vi.fn() },
+      handleInboundMessage: vi.fn().mockResolvedValue(undefined),
       updateMessageEventStatus: vi.fn(),
     }, { logger: false });
 

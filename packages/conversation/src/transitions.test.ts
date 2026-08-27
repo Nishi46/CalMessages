@@ -138,7 +138,7 @@ describe('resolveCorrectionTransition (09 §C, breakdown step 13)', () => {
     ]);
   });
 
-  it('holds a disambiguation context and asks which entry, for multiple matches', () => {
+  it('holds a disambiguation context (intent: correct, by default) and asks which entry, for multiple matches', () => {
     const transition = resolveCorrectionTransition({
       kind: 'multiple',
       candidateLogIds: ['log-1', 'log-2'],
@@ -148,9 +148,34 @@ describe('resolveCorrectionTransition (09 §C, breakdown step 13)', () => {
     expect(transition.sideEffects).toEqual([
       {
         type: 'mergeContext',
-        patch: { pendingKind: 'correction_target', candidateLogIds: ['log-1', 'log-2'] },
+        patch: { pendingKind: 'correction_target', candidateLogIds: ['log-1', 'log-2'], intent: 'correct' },
       },
       { type: 'sendReply', template: 'correction_disambiguation' },
     ]);
+  });
+});
+
+describe('resolveCorrectionTransition — delete intent (09 §E, breakdown step 23)', () => {
+  it('deletes the log and stays idle for a single match', () => {
+    const transition = resolveCorrectionTransition({ kind: 'single', targetLogId: 'log-1' }, 'delete');
+
+    expect(transition.toState).toBe('idle');
+    expect(transition.sideEffects).toEqual([
+      { type: 'deleteMealLog', targetLogId: 'log-1' },
+      { type: 'sendReply', template: 'delete_confirmed' },
+    ]);
+  });
+
+  it('tags the disambiguation hold with intent: delete, for multiple matches', () => {
+    const transition = resolveCorrectionTransition(
+      { kind: 'multiple', candidateLogIds: ['log-1', 'log-2'] },
+      'delete',
+    );
+
+    expect(transition.toState).toBe('awaiting_clarification');
+    expect(transition.sideEffects[0]).toEqual({
+      type: 'mergeContext',
+      patch: { pendingKind: 'correction_target', candidateLogIds: ['log-1', 'log-2'], intent: 'delete' },
+    });
   });
 });
