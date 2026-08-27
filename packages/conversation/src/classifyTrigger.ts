@@ -1,10 +1,16 @@
 import type { ConversationState } from './state.js';
 import type { Trigger } from './trigger.js';
+import { isCorrectionText } from './correctionPattern.js';
 
 export interface InboundSignal {
   currentState: ConversationState;
   hasText: boolean;
   hasPhoto: boolean;
+  // Raw inbound text, when hasText is true — only consulted for the
+  // idle-state correction-pattern check (09 §C step 9); every other branch
+  // here only needs to know whether text/a photo is present, not its
+  // content.
+  text?: string;
 }
 
 // No general-purpose NLU — the router matches inbound intent against current
@@ -28,6 +34,19 @@ export function classifyTrigger(signal: InboundSignal): Trigger {
 
   if (ONBOARDING_STATES.includes(signal.currentState)) {
     return 'onboarding_answer';
+  }
+
+  // Any inbound while a clarifying question (meal or correction target) is
+  // outstanding resolves it — 09 §C step 8.
+  if (signal.currentState === 'awaiting_clarification') {
+    return 'clarification_answer';
+  }
+
+  if (signal.currentState === 'idle') {
+    if (signal.hasText && signal.text !== undefined && isCorrectionText(signal.text)) {
+      return 'correction';
+    }
+    return 'meal_content';
   }
 
   return 'unhandled';

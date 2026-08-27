@@ -24,15 +24,8 @@ describe('classifyTrigger (07 §B, breakdown step 6)', () => {
     },
   );
 
-  it('classifies inbound in every other state as unhandled', () => {
-    const states: ConversationState[] = [
-      'idle',
-      'awaiting_clarification',
-      'awaiting_checkout',
-      'paused',
-      'care_pause',
-      'deleted',
-    ];
+  it('classifies inbound in states with no Sprint 4 wiring as unhandled', () => {
+    const states: ConversationState[] = ['awaiting_checkout', 'paused', 'care_pause', 'deleted'];
 
     for (const currentState of states) {
       expect(classifyTrigger({ currentState, hasText: true, hasPhoto: false })).toBe('unhandled');
@@ -43,5 +36,38 @@ describe('classifyTrigger (07 §B, breakdown step 6)', () => {
     expect(classifyTrigger({ currentState: 'new', hasText: false, hasPhoto: false })).toBe(
       'unhandled',
     );
+  });
+
+  it('classifies a photo or non-correction text while idle as meal_content', () => {
+    expect(classifyTrigger({ currentState: 'idle', hasText: false, hasPhoto: true })).toBe(
+      'meal_content',
+    );
+    expect(
+      classifyTrigger({ currentState: 'idle', hasText: true, hasPhoto: false, text: 'chicken and rice' }),
+    ).toBe('meal_content');
+  });
+
+  it('classifies idle-state text matching the correction pattern as correction', () => {
+    expect(
+      classifyTrigger({ currentState: 'idle', hasText: true, hasPhoto: false, text: 'that was actually 2 eggs' }),
+    ).toBe('correction');
+    expect(
+      classifyTrigger({ currentState: 'idle', hasText: true, hasPhoto: false, text: 'undo that' }),
+    ).toBe('correction');
+  });
+
+  it('defaults ambiguous idle-state text to meal_content rather than correction', () => {
+    expect(
+      classifyTrigger({ currentState: 'idle', hasText: true, hasPhoto: false, text: 'grilled salmon' }),
+    ).toBe('meal_content');
+  });
+
+  it('classifies any inbound while awaiting_clarification as clarification_answer', () => {
+    expect(
+      classifyTrigger({ currentState: 'awaiting_clarification', hasText: true, hasPhoto: false, text: 'it was oatmeal' }),
+    ).toBe('clarification_answer');
+    expect(
+      classifyTrigger({ currentState: 'awaiting_clarification', hasText: false, hasPhoto: true }),
+    ).toBe('clarification_answer');
   });
 });

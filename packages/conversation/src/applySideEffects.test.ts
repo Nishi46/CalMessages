@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { MealCandidate } from '@tally/shared-types';
 import { applySideEffects, type SideEffectDeps } from './applySideEffects.js';
 import type { SideEffect } from './sideEffect.js';
 
@@ -6,11 +7,29 @@ function fakeDeps(): SideEffectDeps & {
   sendReply: ReturnType<typeof vi.fn>;
   mergeContext: ReturnType<typeof vi.fn>;
   createGoal: ReturnType<typeof vi.fn>;
+  writeMealLog: ReturnType<typeof vi.fn>;
+  holdCandidate: ReturnType<typeof vi.fn>;
+  writeCorrection: ReturnType<typeof vi.fn>;
 } {
   return {
     sendReply: vi.fn().mockResolvedValue(undefined),
     mergeContext: vi.fn().mockResolvedValue(undefined),
     createGoal: vi.fn().mockResolvedValue({ dailyCalories: 1650, dailyProtein: 120 }),
+    writeMealLog: vi.fn().mockResolvedValue({ calories: 400, protein: 30, carbs: 10, fat: 20 }),
+    holdCandidate: vi.fn().mockResolvedValue(undefined),
+    writeCorrection: vi.fn().mockResolvedValue({ calories: 450, protein: 35, carbs: 12, fat: 22 }),
+  };
+}
+
+function fakeCandidate(): MealCandidate {
+  return {
+    items: [{ name: 'eggs', portion: '3', calories: 210, protein: 18, carbs: 2, fat: 15 }],
+    calories: 210,
+    protein: 18,
+    carbs: 2,
+    fat: 15,
+    confidence: 'low',
+    isFood: true,
   };
 }
 
@@ -77,4 +96,58 @@ describe('applySideEffects (07 §C, breakdown steps 12-13)', () => {
 
     expect(calls).toEqual(['mergeContext', 'createGoal', 'sendReply']);
   });
+});
+
+describe('applySideEffects — Sprint 4 meal-log side effects (09 §C, breakdown step 10)', () => {
+  it('threads writeMealLog totals into a following sendReply', async () => {
+    const deps = fakeDeps();
+
+    await applySideEffects(
+      [{ type: 'writeMealLog' }, { type: 'sendReply', template: 'meal_logged' }],
+      deps,
+    );
+
+    expect(deps.writeMealLog).toHaveBeenCalledTimes(1);
+    expect(deps.sendReply).toHaveBeenCalledWith('Logged: 400 cal, 30g protein, 10g carbs, 20g fat.');
+  });
+
+  it('calls holdCandidate with the effect candidate verbatim', async () => {
+    const deps = fakeDeps();
+    const candidate = fakeCandidate();
+
+    await applySideEffects([{ type: 'holdCandidate', candidate }], deps);
+
+    expect(deps.holdCandidate).toHaveBeenCalledWith(candidate);
+  });
+
+  it('threads writeCorrection totals into a following sendReply', async () => {
+    const deps = fakeDeps();
+
+    await applySideEffects(
+      [
+        { type: 'writeCorrection', targetLogId: 'log-1' },
+        { type: 'sendReply', template: 'correction_confirmed' },
+      ],
+      deps,
+    );
+
+    expect(deps.writeCorrection).toHaveBeenCalledWith('log-1');
+    expect(deps.sendReply).toHaveBeenCalledWith(
+      'Updated — that entry is now 450 cal, 35g protein, 12g carbs, 22g fat.',
+    );
+  });
+
+  it.each([
+    ['writeMealLog', [{ type: 'writeMealLog' }]],
+    ['holdCandidate', [{ type: 'holdCandidate', candidate: fakeCandidate() }]],
+    ['writeCorrection', [{ type: 'writeCorrection', targetLogId: 'log-1' }]],
+  ] satisfies Array<[string, SideEffect[]]>)(
+    'throws a clear error when %s fires without its dep, instead of silently dropping the write',
+    async (depName, effects) => {
+      const deps = fakeDeps();
+      delete (deps as Partial<SideEffectDeps>)[depName as keyof SideEffectDeps];
+
+      await expect(applySideEffects(effects, deps)).rejects.toThrow(depName);
+    },
+  );
 });

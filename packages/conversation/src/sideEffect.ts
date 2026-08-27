@@ -1,3 +1,4 @@
+import type { MealCandidate } from '@tally/shared-types';
 import type { TemplateId } from './templates.js';
 
 // Side effects are pure data attached to a transition, not executed inline —
@@ -7,7 +8,15 @@ import type { TemplateId } from './templates.js';
 // `template` is typed against the known template registry so a typo in the
 // static lookup table (transitions.ts) fails to compile instead of failing
 // silently at render time.
+//
+// writeMealLog / holdCandidate / writeCorrection (09 §C step 10) are kept
+// distinct from mergeContext/sendReply since the interpreter needs to
+// special-case what actually gets persisted for each, rather than treating
+// them as an opaque context patch.
 export type SideEffect =
   | { type: 'sendReply'; template: TemplateId; vars?: Record<string, string | number> }
   | { type: 'mergeContext'; patch: Record<string, unknown> }
-  | { type: 'createGoal' };
+  | { type: 'createGoal' }
+  | { type: 'writeMealLog' }
+  | { type: 'holdCandidate'; candidate: MealCandidate }
+  | { type: 'writeCorrection'; targetLogId: string };
