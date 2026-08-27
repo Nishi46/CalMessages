@@ -11,7 +11,7 @@ npm run build --workspace=@tally/api
 npm run start --workspace=@tally/api
 ```
 
-`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `PUBLIC_BASE_URL` are required — the process fails fast on startup if any are missing.
+`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`, `PUBLIC_BASE_URL`, `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and `VISION_PROVIDER_API_KEY` are required — the process fails fast on startup if any are missing. See `.claude/skills/run-api/SKILL.md` for a verified step-by-step.
 
 ## Why `PUBLIC_BASE_URL` is a config value, not something read off the request
 
