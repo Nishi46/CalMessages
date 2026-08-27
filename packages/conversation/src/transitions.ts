@@ -73,6 +73,13 @@ export function resolveTransition(fromState: ConversationState, trigger: Trigger
 // before calling applySideEffects.
 export function resolveMealContentTransition(candidate: MealCandidate): Transition {
   if (candidate.confidence === 'low') {
+    // No vision/text producer currently populates confidenceNote (09 §F
+    // step 25: "where available") — the template's own {confidenceNote}
+    // placeholder expects a leading " — " separator, supplied here only
+    // when there's a real note, so the reply still reads as one clean
+    // sentence when there isn't: "Got a partial read. What was it,
+    // roughly?" vs "...read — couldn't tell the portion size. What...".
+    const confidenceNote = candidate.confidenceNote ? ` — ${candidate.confidenceNote}` : '';
     return {
       toState: 'awaiting_clarification',
       sideEffects: [
@@ -80,7 +87,7 @@ export function resolveMealContentTransition(candidate: MealCandidate): Transiti
         {
           type: 'sendReply',
           template: 'meal_clarifying_question',
-          vars: { confidenceNote: candidate.confidenceNote ?? '' },
+          vars: { confidenceNote },
         },
       ],
     };

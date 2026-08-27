@@ -100,7 +100,7 @@ describe('resolveMealContentTransition (09 §C, breakdown step 11)', () => {
     },
   );
 
-  it('holds the candidate and asks a clarifying question on low confidence', () => {
+  it('holds the candidate and asks a clarifying question on low confidence, prefixing a real note with " — "', () => {
     const low = candidate({ confidence: 'low', confidenceNote: 'couldn\'t tell the portion size' });
 
     const transition = resolveMealContentTransition(low);
@@ -111,7 +111,7 @@ describe('resolveMealContentTransition (09 §C, breakdown step 11)', () => {
       {
         type: 'sendReply',
         template: 'meal_clarifying_question',
-        vars: { confidenceNote: "couldn't tell the portion size" },
+        vars: { confidenceNote: " — couldn't tell the portion size" },
       },
     ]);
   });

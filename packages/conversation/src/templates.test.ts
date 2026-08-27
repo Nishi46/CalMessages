@@ -22,3 +22,85 @@ describe('renderTemplate (07 §C, breakdown step 10)', () => {
     );
   });
 });
+
+describe('meal-logging templates (09 §F, breakdown step 25)', () => {
+  it('renders the full log reply with macros and the daily total, and no item breakdown for a single item', () => {
+    const rendered = renderTemplate('meal_logged', {
+      calories: 210,
+      protein: 18,
+      carbs: 2,
+      fat: 15,
+      itemBreakdown: '',
+      todayCalories: 210,
+      goalCalories: 1650,
+    });
+
+    expect(rendered).toBe('Logged: 210 cal, 18g protein, 2g carbs, 15g fat.\n\nToday: 210/1650 cal so far.');
+  });
+
+  it('includes the per-item breakdown when there is more than one item', () => {
+    const itemBreakdown = '\n- eggs (2): 140 cal\n- toast (1 slice): 80 cal';
+
+    const rendered = renderTemplate('meal_logged', {
+      calories: 220,
+      protein: 15,
+      carbs: 16,
+      fat: 11,
+      itemBreakdown,
+      todayCalories: 220,
+      goalCalories: 1650,
+    });
+
+    expect(rendered).toContain('- eggs (2): 140 cal');
+    expect(rendered).toContain('- toast (1 slice): 80 cal');
+  });
+
+  it('reads as one clean sentence with no confidenceNote', () => {
+    expect(renderTemplate('meal_clarifying_question', { confidenceNote: '' })).toBe(
+      'Got a partial read. What was it, roughly?',
+    );
+  });
+
+  it('folds a real confidenceNote in with its own " — " separator', () => {
+    expect(
+      renderTemplate('meal_clarifying_question', { confidenceNote: " — couldn't tell the portion size" }),
+    ).toBe("Got a partial read — couldn't tell the portion size. What was it, roughly?");
+  });
+
+  it('renders distinct copy for non-food vs. unassessable', () => {
+    expect(renderTemplate('meal_non_food')).toContain("doesn't look like food");
+    expect(renderTemplate('meal_unassessable')).toContain('clearer photo');
+  });
+
+  it('renders a distinct holding reply per source', () => {
+    expect(renderTemplate('meal_holding_reply_photo')).toContain('photo');
+    expect(renderTemplate('meal_holding_reply_text')).not.toContain('photo');
+  });
+});
+
+describe('correction/delete templates (09 §F, breakdown step 25)', () => {
+  it('renders the correction confirmation with the corrected entry\'s own day total', () => {
+    const rendered = renderTemplate('correction_confirmed', {
+      calories: 210,
+      protein: 18,
+      carbs: 2,
+      fat: 15,
+      dayCalories: 510,
+    });
+
+    expect(rendered).toBe(
+      'Updated — that entry is now 210 cal, 18g protein, 2g carbs, 15g fat. Total for that day is now 510 cal.',
+    );
+  });
+
+  it('renders the delete confirmation with the day total', () => {
+    expect(renderTemplate('delete_confirmed', { dayCalories: 0 })).toBe(
+      'Deleted. Total for that day is now 0 cal.',
+    );
+  });
+
+  it('renders the disambiguation question and the not-found reply with no placeholders', () => {
+    expect(renderTemplate('correction_disambiguation')).toContain('which one did you mean');
+    expect(renderTemplate('correction_not_found')).toContain("couldn't find anything recent");
+  });
+});
