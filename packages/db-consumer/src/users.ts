@@ -63,6 +63,16 @@ export async function getUserById(id: string): Promise<User | null> {
   return rows[0] ? rowToUser(rows[0]) : null;
 }
 
+// 09 breakdown §C step 7: the nudge evaluation loop's active-user set (04
+// §7.1) — reuses idx_user_state, the partial index Sprint 1 added on
+// exactly this WHERE clause shape.
+export async function getActiveUsersForScheduling(): Promise<User[]> {
+  const { rows } = await getPool().query<UserRow>(
+    `SELECT * FROM "user" WHERE opt_out_at IS NULL AND paused_at IS NULL AND conversation_state = 'idle'`,
+  );
+  return rows.map(rowToUser);
+}
+
 export async function updateUserState(
   userId: string,
   conversationState: string,

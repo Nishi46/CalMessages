@@ -1,5 +1,6 @@
 import { getPool } from '@tally/db-consumer';
 import type { Job } from 'bullmq';
+import { runEvaluationLoop } from './evaluationLoop.js';
 import { createNudgeQueue, createNudgeWorker, type NudgeJobData } from './queue.js';
 import { createRedisConnection } from './redis.js';
 import { tryAcquireSchedulerLeadership, type SchedulerLeadership } from './schedulerLock.js';
@@ -33,11 +34,8 @@ async function processNudgeJob(job: Job<NudgeJobData>): Promise<void> {
 
 const nudgeWorker = createNudgeWorker(connection, processNudgeJob);
 
-// Placeholder scheduler loop body — §C fills this in with the real
-// eligibility checks (active users, already-logged, quiet hours, frequency
-// cap, disengagement rule) and enqueues onto nudgeQueue.
 async function runSchedulerTick(): Promise<void> {
-  console.log('[worker] scheduler tick (leader) — evaluation loop not yet implemented');
+  await runEvaluationLoop(nudgeQueue, new Date());
 }
 
 let leadership: SchedulerLeadership | undefined;

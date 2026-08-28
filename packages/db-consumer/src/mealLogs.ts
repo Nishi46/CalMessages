@@ -161,6 +161,35 @@ export async function createCorrection(
   return rows[0] ? rowToMealLog(rows[0]) : null;
 }
 
+// 09 breakdown §C step 8: the evaluation loop's "already logged today" skip
+// (04 §7.1) — reuses idx_meal_user_date.
+export async function hasLoggedToday(userId: string, localDate: string): Promise<boolean> {
+  const { rows } = await getPool().query<{ exists: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM meal_log WHERE user_id = $1 AND local_date = $2 AND soft_deleted_at IS NULL
+     ) AS exists`,
+    [userId, localDate],
+  );
+  return rows[0].exists;
+}
+
+// 09 breakdown §C step 10: feeds the 5-day disengagement rule (§C step 12).
+// `now` is a caller-supplied instant rather than SQL now() so the evaluation
+// loop's injected clock (§F step 18) can drive this deterministically in
+// tests instead of racing the real wall clock. Returns null — the "never
+// logged" sentinel — rather than a fake day count, so a user with no history
+// can't be mistaken for one who logged recently.
+export async function daysSinceLastLog(userId: string, now: Date): Promise<number | null> {
+  const { rows } = await getPool().query<{ last_logged_at: Date | null }>(
+    `SELECT MAX(logged_at) AS last_logged_at FROM meal_log WHERE user_id = $1 AND soft_deleted_at IS NULL`,
+    [userId],
+  );
+  const lastLoggedAt = rows[0]?.last_logged_at;
+  if (!lastLoggedAt) return null;
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return Math.floor((now.getTime() - lastLoggedAt.getTime()) / msPerDay);
+}
+
 export async function softDeleteMealLog(id: string): Promise<MealLog | null> {
   const { rows } = await getPool().query<MealLogRow>(
     `UPDATE meal_log

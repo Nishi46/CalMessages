@@ -77,6 +77,27 @@ export async function updateMessageEventStatus(
   return rowToMessageEvent(rows[0]);
 }
 
+// 09 breakdown §C step 9: the evaluation loop's frequency-cap pre-filter (04
+// §7.1, §7.3) — counted against the user's LOCAL day, not a UTC calendar day
+// (09 breakdown §B is why that distinction matters: a UTC-day count would
+// under- or over-count near midnight for any non-UTC timezone). Bucketing
+// happens via Postgres's own tz-aware AT TIME ZONE rather than converting
+// day boundaries in JS, so the query needs only the caller's already-computed
+// localDate; the join's user_id/type filter still uses idx_msgevent_user_type_sent.
+export async function countNudgesSentToday(userId: string, localDate: string): Promise<number> {
+  const { rows } = await getPool().query<{ count: number }>(
+    `SELECT COUNT(*)::int AS count
+     FROM message_event me
+     JOIN "user" u ON u.id = me.user_id
+     WHERE me.user_id = $1
+       AND me.type = 'nudge'
+       AND me.direction = 'outbound'
+       AND (me.sent_at AT TIME ZONE u.timezone)::date = $2::date`,
+    [userId, localDate],
+  );
+  return rows[0].count;
+}
+
 // Twilio delivers status callbacks out of order (documented behavior), so a
 // delayed earlier-stage callback (e.g. "sent") can arrive after a later one
 // ("delivered") already landed. Once a message reaches a terminal status, that
