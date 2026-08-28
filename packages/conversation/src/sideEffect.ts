@@ -22,4 +22,9 @@ export type SideEffect =
   | { type: 'writeCorrection'; targetLogId: string }
   // "Delete that" with no replacement value (09 §E step 23) — kept
   // distinct from writeCorrection since there's no MealCandidate to write.
-  | { type: 'deleteMealLog'; targetLogId: string };
+  | { type: 'deleteMealLog'; targetLogId: string }
+  // 11 breakdown §C step 11: same "result feeds the sendReply that follows
+  // it" chaining createGoal uses (07 §C step 13) — the paywall template's
+  // {checkoutLink} placeholder needs a real Stripe Checkout URL, which is
+  // runtime data (an API call), not something a static table row can hold.
+  | { type: 'createCheckoutLink' };

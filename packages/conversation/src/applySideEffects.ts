@@ -48,6 +48,7 @@ export interface SideEffectDeps {
   holdCandidate?: (candidate: MealCandidate) => Promise<void>;
   writeCorrection?: (targetLogId: string) => Promise<CorrectionWriteResult>;
   deleteMealLog?: (targetLogId: string) => Promise<CorrectionWriteResult>;
+  createCheckoutLink?: () => Promise<{ checkoutLink: string }>;
 }
 
 // Executes a transition's side effects in order against injected deps, so
@@ -107,6 +108,16 @@ export async function applySideEffects(effects: SideEffect[], deps: SideEffectDe
         }
         const totals = await deps.deleteMealLog(effect.targetLogId);
         runtimeVars = { ...runtimeVars, ...totals };
+        break;
+      }
+      case 'createCheckoutLink': {
+        if (!deps.createCheckoutLink) {
+          throw new Error(
+            'applySideEffects: createCheckoutLink effect fired without deps.createCheckoutLink',
+          );
+        }
+        const link = await deps.createCheckoutLink();
+        runtimeVars = { ...runtimeVars, ...link };
         break;
       }
     }

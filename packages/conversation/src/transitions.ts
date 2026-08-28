@@ -56,9 +56,18 @@ const TRANSITIONS: Record<string, Transition> = {
   // crosses the free-tier limit — always from 'idle', since every write path
   // (fast meal_content and the clarification-answer completion above) lands
   // in 'idle' before this second-stage transition is even considered.
+  // createCheckoutLink runs first so its {checkoutLink} result is available
+  // to the sendReply that follows (11 breakdown §C step 11).
   [key('idle', 'limit_crossed')]: {
     toState: 'awaiting_checkout',
-    sideEffects: [{ type: 'sendReply', template: 'paywall' }],
+    sideEffects: [{ type: 'createCheckoutLink' }, { type: 'sendReply', template: 'paywall' }],
+  },
+  // 11 breakdown §C step 13: fired by the Stripe webhook handler once
+  // checkout.session.completed resolves which user just paid — same
+  // synthetic-trigger route as limit_crossed above, for the same reason.
+  [key('awaiting_checkout', 'checkout_completed')]: {
+    toState: 'idle',
+    sideEffects: [{ type: 'sendReply', template: 'checkout_confirmed' }],
   },
 };
 

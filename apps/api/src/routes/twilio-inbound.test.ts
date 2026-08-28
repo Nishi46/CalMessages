@@ -31,6 +31,9 @@ function noopDeps() {
     objectStore: { putObject: vi.fn(), getObject: vi.fn() } satisfies ObjectStore,
     handleInboundMessage: vi.fn().mockResolvedValue(undefined),
     updateMessageEventStatus: vi.fn(),
+    stripeSecretKey: 'sk_test_fake',
+    stripeWebhookSecret: 'whsec_fake',
+    sendClient: { send: vi.fn() },
   };
 }
 
@@ -208,6 +211,9 @@ describe('POST /webhooks/twilio/inbound — against a real Postgres (breakdown s
       objectStore: { putObject: vi.fn(), getObject: vi.fn() },
       handleInboundMessage: vi.fn().mockResolvedValue(undefined),
       updateMessageEventStatus: vi.fn(),
+      stripeSecretKey: 'sk_test_fake',
+      stripeWebhookSecret: 'whsec_fake',
+      sendClient: { send: vi.fn() },
     }, { logger: false });
 
     const first = await app.inject({ method: 'POST', url: PATH, headers, payload });

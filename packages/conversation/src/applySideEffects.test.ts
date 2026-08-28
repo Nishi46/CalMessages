@@ -11,6 +11,7 @@ function fakeDeps(): SideEffectDeps & {
   holdCandidate: ReturnType<typeof vi.fn>;
   writeCorrection: ReturnType<typeof vi.fn>;
   deleteMealLog: ReturnType<typeof vi.fn>;
+  createCheckoutLink: ReturnType<typeof vi.fn>;
 } {
   return {
     sendReply: vi.fn().mockResolvedValue(undefined),
@@ -49,6 +50,7 @@ function fakeDeps(): SideEffectDeps & {
       dayCarbs: 58,
       dayFat: 45,
     }),
+    createCheckoutLink: vi.fn().mockResolvedValue({ checkoutLink: 'https://checkout.stripe.com/c/fake' }),
   };
 }
 
@@ -190,6 +192,7 @@ describe('applySideEffects — Sprint 4 meal-log side effects (09 §C, breakdown
     ['holdCandidate', [{ type: 'holdCandidate', candidate: fakeCandidate() }]],
     ['writeCorrection', [{ type: 'writeCorrection', targetLogId: 'log-1' }]],
     ['deleteMealLog', [{ type: 'deleteMealLog', targetLogId: 'log-1' }]],
+    ['createCheckoutLink', [{ type: 'createCheckoutLink' }]],
   ] satisfies Array<[string, SideEffect[]]>)(
     'throws a clear error when %s fires without its dep, instead of silently dropping the write',
     async (depName, effects) => {
@@ -199,4 +202,20 @@ describe('applySideEffects — Sprint 4 meal-log side effects (09 §C, breakdown
       await expect(applySideEffects(effects, deps)).rejects.toThrow(depName);
     },
   );
+});
+
+describe('applySideEffects — Sprint 6 §C checkout side effects (11 breakdown step 11)', () => {
+  it('threads a freshly created checkout link into a sendReply that follows it', async () => {
+    const deps = fakeDeps();
+
+    await applySideEffects(
+      [{ type: 'createCheckoutLink' }, { type: 'sendReply', template: 'paywall' }],
+      deps,
+    );
+
+    expect(deps.createCheckoutLink).toHaveBeenCalledTimes(1);
+    expect(deps.sendReply).toHaveBeenCalledWith(
+      "You've used all your free logs. $9.99/mo keeps it going, no app required: https://checkout.stripe.com/c/fake",
+    );
+  });
 });

@@ -7,11 +7,12 @@
 // while idle), clarification_answer (any inbound while
 // awaiting_clarification), and correction (idle-state text matching the
 // correction pattern — 09 §C step 9).
-// limit_crossed (11 breakdown §B step 9) is synthetic — it never comes out
-// of classifyTrigger. Billing logic fires it directly at resolveTransition
-// once a meal-log write crosses the free-tier limit, so that transition
-// (like every other one) still flows through the one lookup table rather
-// than conversation_state being set directly from billing code.
+// limit_crossed (11 breakdown §B step 9) and checkout_completed (11
+// breakdown §C step 13) are synthetic — neither comes out of
+// classifyTrigger. Billing logic fires them directly at resolveTransition
+// (from the meal-log write and the Stripe webhook, respectively), so those
+// transitions (like every other one) still flow through the one lookup
+// table rather than conversation_state being set directly from billing code.
 export type Trigger =
   | 'first_contact'
   | 'onboarding_answer'
@@ -19,4 +20,5 @@ export type Trigger =
   | 'clarification_answer'
   | 'correction'
   | 'limit_crossed'
+  | 'checkout_completed'
   | 'unhandled';

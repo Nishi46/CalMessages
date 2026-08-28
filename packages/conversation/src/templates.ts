@@ -64,13 +64,17 @@ export const TEMPLATES = {
   // scrutiny, not just a tone pass.
   proactive_checkin: "How'd dinner go tonight?",
 
-  // --- Free-tier paywall (Sprint 6 §B step 9) ---
-  // Placeholder copy: 11 breakdown §C step 11 replaces this with the exact
-  // Build Spec §4.6 wording ("That's your 20 free logs used... $9.99/mo...")
-  // once createCheckoutLink exists to supply the link it interpolates — no
-  // sense wiring an unrendered {checkoutLink} placeholder into a live
-  // message before that lands.
-  paywall: "You've used all your free logs. Upgrade to keep going — we'll text a checkout link shortly.",
+  // --- Free-tier paywall (Sprint 6 §B step 9, §C step 11) ---
+  // Build Spec §4.6's example transcript, minus the "you've been at this for
+  // N days" personalization — that needs a days-since-signup computation
+  // that isn't otherwise needed anywhere in the checkout flow, so it's left
+  // for a later copy pass rather than added just for this line.
+  paywall: "You've used all your free logs. $9.99/mo keeps it going, no app required: {checkoutLink}",
+  // --- Checkout confirmation (Sprint 6 §C step 13) ---
+  // Build Spec §4.6 step 3: "resume exactly where the thread left off — no
+  // re-onboarding, no re-confirmation [beyond this one text]." Deliberately
+  // says nothing else — the very next meal photo should just work.
+  checkout_confirmed: "You're all set — logging is back on. Send your next meal whenever you're ready.",
 } as const satisfies Record<string, string>;
 
 export type TemplateId = keyof typeof TEMPLATES;

@@ -47,6 +47,14 @@ function noTextParser(): TextParser {
   return { parse: vi.fn().mockRejectedValue(new Error('textParser should not be called')) };
 }
 
+function noCreateCheckoutLink(): (userId: string) => Promise<string> {
+  return vi.fn().mockRejectedValue(new Error('createCheckoutLink should not be called'));
+}
+
+function fakeCreateCheckoutLink(url = 'https://checkout.stripe.com/c/fake'): ReturnType<typeof vi.fn> {
+  return vi.fn().mockResolvedValue(url);
+}
+
 // The async-completion path fires several real DB round-trips after its
 // triggering promise settles, so a single microtask flush isn't enough to
 // observe it — poll instead of guessing a fixed delay.
@@ -69,6 +77,7 @@ describe('createInboundMessageHandler (07 §D, against a real Postgres)', () => 
       sendClient,
       visionProvider: noVisionProvider(),
       textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
     });
 
     await handleInboundMessage({ userId: user.id, text: 'hi', currentState: 'new' });
@@ -123,6 +132,7 @@ describe('createInboundMessageHandler (07 §D, against a real Postgres)', () => 
       sendClient,
       visionProvider: noVisionProvider(),
       textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
     });
 
     await handleInboundMessage({
@@ -149,6 +159,7 @@ describe('createInboundMessageHandler — meal_content fast path (09 §D)', () =
       sendClient,
       visionProvider: fakeVisionProvider(vi.fn().mockResolvedValue(candidate)),
       textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
     });
 
     await handleInboundMessage({ userId: user.id, photoKey: 'meal-photos/abc', currentState: 'idle' });
@@ -186,6 +197,7 @@ describe('createInboundMessageHandler — meal_content fast path (09 §D)', () =
       sendClient,
       visionProvider: fakeVisionProvider(vi.fn().mockResolvedValue(candidate)),
       textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
     });
 
     await handleInboundMessage({ userId: user.id, photoKey: 'meal-photos/def', currentState: 'idle' });
@@ -205,6 +217,7 @@ describe('createInboundMessageHandler — meal_content fast path (09 §D)', () =
       sendClient,
       visionProvider: fakeVisionProvider(vi.fn().mockResolvedValue(candidate)),
       textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
     });
 
     await handleInboundMessage({ userId: user.id, photoKey: 'meal-photos/ghi', currentState: 'idle' });
@@ -233,6 +246,7 @@ describe('createInboundMessageHandler — meal_content fast path (09 §D)', () =
       sendClient,
       visionProvider: noVisionProvider(),
       textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
     });
 
     await handleInboundMessage({
@@ -261,6 +275,7 @@ describe('createInboundMessageHandler — meal_content fast path (09 §D)', () =
       sendClient,
       visionProvider: fakeVisionProvider(vi.fn().mockResolvedValue(candidate)),
       textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
     });
 
     await handleInboundMessage({ userId: user.id, photoKey: 'meal-photos/jkl', currentState: 'idle' });
@@ -284,6 +299,7 @@ describe('createInboundMessageHandler — meal_content fast path (09 §D)', () =
       sendClient,
       visionProvider: fakeVisionProvider(vi.fn().mockResolvedValue(candidate)),
       textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
     });
 
     await handleInboundMessage({ userId: user.id, photoKey: 'meal-photos/mno', currentState: 'idle' });
@@ -303,6 +319,7 @@ describe('createInboundMessageHandler — meal_content fast path (09 §D)', () =
       sendClient,
       visionProvider: noVisionProvider(),
       textParser: fakeTextParser(parse),
+      createCheckoutLink: noCreateCheckoutLink(),
     });
 
     await handleInboundMessage({ userId: user.id, text: 'three eggs', currentState: 'idle' });
@@ -321,6 +338,7 @@ describe('createInboundMessageHandler — meal_content fast path (09 §D)', () =
       sendClient,
       visionProvider: fakeVisionProvider(recognize),
       textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
     });
 
     await handleInboundMessage({
@@ -347,6 +365,7 @@ describe('createInboundMessageHandler — meal_content fast path (09 §D)', () =
       sendClient,
       visionProvider: fakeVisionProvider(() => slowPending),
       textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
       mealContentTimeoutMs: 10,
       onAsyncError,
     });
@@ -373,6 +392,7 @@ describe('createInboundMessageHandler — meal_content fast path (09 §D)', () =
       sendClient,
       visionProvider: fakeVisionProvider(vi.fn().mockRejectedValue(new Error('provider down'))),
       textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
       mealContentTimeoutMs: 1000,
       onAsyncError,
     });
@@ -404,6 +424,7 @@ describe('createInboundMessageHandler — correction/edit resolution (09 §E)', 
       sendClient,
       visionProvider: noVisionProvider(),
       textParser: fakeTextParser(vi.fn().mockResolvedValue(replacement)),
+      createCheckoutLink: noCreateCheckoutLink(),
     });
 
     await handleInboundMessage({
@@ -439,6 +460,7 @@ describe('createInboundMessageHandler — correction/edit resolution (09 §E)', 
       sendClient,
       visionProvider: noVisionProvider(),
       textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
     });
 
     await handleInboundMessage({ userId: user.id, text: 'delete that', currentState: 'idle' });
@@ -467,6 +489,7 @@ describe('createInboundMessageHandler — correction/edit resolution (09 §E)', 
       sendClient,
       visionProvider: noVisionProvider(),
       textParser: fakeTextParser(vi.fn().mockResolvedValue(replacement)),
+      createCheckoutLink: noCreateCheckoutLink(),
     });
 
     await handleInboundMessage({
@@ -495,6 +518,7 @@ describe('createInboundMessageHandler — correction/edit resolution (09 §E)', 
       sendClient,
       visionProvider: noVisionProvider(),
       textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
     });
 
     await handleInboundMessage({
@@ -524,6 +548,7 @@ describe('createInboundMessageHandler — correction/edit resolution (09 §E)', 
       sendClient,
       visionProvider: noVisionProvider(),
       textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
     });
 
     await handleInboundMessage({
@@ -559,10 +584,12 @@ describe('createInboundMessageHandler — free-tier metering & paywall trigger (
     await seedSubscription(user.id, 19); // default free_analyses_limit is 20 — this log crosses it
     const sendClient = fakeSendClient();
     const candidate = fakeCandidate({ confidence: 'high' });
+    const createCheckoutLink = fakeCreateCheckoutLink('https://checkout.stripe.com/c/session_abc');
     const handleInboundMessage = createInboundMessageHandler({
       sendClient,
       visionProvider: fakeVisionProvider(vi.fn().mockResolvedValue(candidate)),
       textParser: noTextParser(),
+      createCheckoutLink,
     });
 
     await handleInboundMessage({ userId: user.id, photoKey: 'meal-photos/abc', currentState: 'idle' });
@@ -574,6 +601,10 @@ describe('createInboundMessageHandler — free-tier metering & paywall trigger (
     expect(logReplyBody).toContain('Logged: 210 cal, 18g protein, 2g carbs, 15g fat.');
     const [, paywallBody] = sendClient.send.mock.calls[1] as [string, string];
     expect(paywallBody).toContain('free logs');
+    // 11 breakdown §C step 11: the paywall message interpolates a real
+    // Stripe checkout link, built for this user specifically.
+    expect(paywallBody).toContain('https://checkout.stripe.com/c/session_abc');
+    expect(createCheckoutLink).toHaveBeenCalledWith(user.id);
 
     const { rows } = await getPool().query<{ type: string }>(
       `SELECT type FROM message_event WHERE user_id = $1 ORDER BY sent_at`,
@@ -599,6 +630,7 @@ describe('createInboundMessageHandler — free-tier metering & paywall trigger (
       sendClient,
       visionProvider: fakeVisionProvider(vi.fn().mockResolvedValue(candidate)),
       textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
     });
 
     await handleInboundMessage({ userId: user.id, photoKey: 'meal-photos/abc', currentState: 'idle' });
@@ -625,6 +657,7 @@ describe('createInboundMessageHandler — free-tier metering & paywall trigger (
       sendClient,
       visionProvider: fakeVisionProvider(vi.fn().mockResolvedValue(candidate)),
       textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
     });
 
     await handleInboundMessage({ userId: user.id, photoKey: 'meal-photos/abc', currentState: 'idle' });
@@ -651,6 +684,7 @@ describe('createInboundMessageHandler — free-tier metering & paywall trigger (
       sendClient,
       visionProvider: noVisionProvider(),
       textParser: noTextParser(),
+      createCheckoutLink: fakeCreateCheckoutLink(),
     });
 
     await handleInboundMessage({
@@ -662,6 +696,7 @@ describe('createInboundMessageHandler — free-tier metering & paywall trigger (
     expect(sendClient.send).toHaveBeenCalledTimes(2);
     const [, paywallBody] = sendClient.send.mock.calls[1] as [string, string];
     expect(paywallBody).toContain('free logs');
+    expect(paywallBody).toContain('https://checkout.stripe.com/c/fake');
 
     const current = await getUserByPhone(phone);
     expect(current?.conversationState).toBe('awaiting_checkout');
@@ -683,6 +718,7 @@ describe('handleInboundMessage — end-to-end scripted flows (09 §G, breakdown 
       sendClient,
       visionProvider: fakeVisionProvider(vi.fn().mockResolvedValue(fakeCandidate({ confidence: 'high' }))),
       textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
     });
 
     await handleInboundMessage({ userId: user.id, photoKey: 'meal-photos/e2e-1', currentState: 'idle' });
@@ -704,6 +740,7 @@ describe('handleInboundMessage — end-to-end scripted flows (09 §G, breakdown 
       sendClient,
       visionProvider: fakeVisionProvider(vi.fn().mockResolvedValue(lowConfidenceCandidate)),
       textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
     });
 
     // Turn 1: photo comes back low-confidence — held, not logged yet.
@@ -748,6 +785,7 @@ describe('handleInboundMessage — end-to-end scripted flows (09 §G, breakdown 
       sendClient,
       visionProvider: noVisionProvider(),
       textParser: fakeTextParser(vi.fn().mockResolvedValue(fakeCandidate({ calories: 350 }))),
+      createCheckoutLink: noCreateCheckoutLink(),
     });
 
     await handleInboundMessage({
@@ -776,6 +814,7 @@ describe('handleInboundMessage — end-to-end scripted flows (09 §G, breakdown 
       sendClient,
       visionProvider: noVisionProvider(),
       textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
     });
 
     await handleInboundMessage({ userId: user.id, text: 'delete that', currentState: 'idle' });

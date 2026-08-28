@@ -15,6 +15,8 @@ describe('resolveTransition (07 §A, breakdown steps 4-5)', () => {
     ['onboarding_q2', 'onboarding_answer', 'onboarding_q3', ['sendReply']],
     ['onboarding_q3', 'onboarding_answer', 'idle', ['createGoal', 'sendReply']],
     ['awaiting_clarification', 'clarification_answer', 'idle', ['writeMealLog', 'sendReply']],
+    ['idle', 'limit_crossed', 'awaiting_checkout', ['createCheckoutLink', 'sendReply']],
+    ['awaiting_checkout', 'checkout_completed', 'idle', ['sendReply']],
   ] as const)(
     '%s + %s -> %s',
     (fromState, trigger, expectedToState, expectedEffectTypes) => {
@@ -62,6 +64,8 @@ describe('resolveTransition (07 §A, breakdown steps 4-5)', () => {
       'meal_content',
       'clarification_answer',
       'correction',
+      'limit_crossed',
+      'checkout_completed',
       'unhandled',
     ];
 

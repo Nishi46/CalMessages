@@ -50,6 +50,11 @@ export interface RouterDeps {
   sendClient: TwilioSendClient;
   visionProvider: VisionProvider;
   textParser: TextParser;
+  // 11 breakdown §C step 10: a fully-built function rather than a raw
+  // @tally/billing client, so the router stays decoupled from Stripe
+  // specifics (session shape, price id) the same way it never touches the
+  // Twilio SDK directly either — apps/api/src/index.ts closes over those.
+  createCheckoutLink: (userId: string) => Promise<string>;
   // The meal_content path can hold this handler's own async work open past
   // its return (09 §D step 20's holding-reply fallback) — a rejection
   // there would otherwise vanish silently. Defaults to console.error.
@@ -261,6 +266,11 @@ async function triggerPaywall(userId: string, deps: RouterDeps): Promise<void> {
     createGoal: async () => {
       throw new Error('createGoal should not fire on the limit_crossed path');
     },
+    // 11 breakdown §C step 11: idle:limit_crossed's own sideEffects put
+    // createCheckoutLink ahead of sendReply, so this result is already
+    // available to render {checkoutLink} into the paywall template by the
+    // time sendReply above fires.
+    createCheckoutLink: async () => ({ checkoutLink: await deps.createCheckoutLink(userId) }),
   });
   await updateUserState(userId, transition.toState);
 }

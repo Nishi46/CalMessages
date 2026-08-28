@@ -1,3 +1,4 @@
+import { createCheckoutLink as createStripeCheckoutLink, createStripeCheckoutClient } from '@tally/billing';
 import { updateMessageEventStatusBySid } from '@tally/db-consumer';
 import { createTwilioSendClient } from '@tally/messaging';
 import { createTextModelClient, createTextParser, createVisionModelClient, createVisionProvider } from '@tally/vision';
@@ -27,6 +28,9 @@ const authToken = requireEnv('TWILIO_AUTH_TOKEN');
 const publicBaseUrl = requireEnv('PUBLIC_BASE_URL');
 const fromNumber = requireEnv('TWILIO_PHONE_NUMBER');
 const visionProviderApiKey = requireEnv('VISION_PROVIDER_API_KEY');
+const stripeSecretKey = requireEnv('STRIPE_SECRET_KEY');
+const stripeWebhookSecret = requireEnv('STRIPE_WEBHOOK_SECRET');
+const stripePriceId = requireEnv('STRIPE_PRICE_ID');
 
 const objectStore = createS3ObjectStore({
   endpoint: requireEnv('S3_ENDPOINT'),
@@ -51,7 +55,19 @@ const textParser = createTextParser({
   textClient: createTextModelClient({ apiKey: visionProviderApiKey }),
 });
 
-const handleInboundMessage = createInboundMessageHandler({ sendClient, visionProvider, textParser });
+const checkoutClient = createStripeCheckoutClient({ secretKey: stripeSecretKey, priceId: stripePriceId });
+const createCheckoutLink = (userId: string): Promise<string> =>
+  createStripeCheckoutLink(checkoutClient, userId, {
+    successUrl: `${publicBaseUrl}/checkout/success`,
+    cancelUrl: `${publicBaseUrl}/checkout/cancel`,
+  });
+
+const handleInboundMessage = createInboundMessageHandler({
+  sendClient,
+  visionProvider,
+  textParser,
+  createCheckoutLink,
+});
 
 const app = buildApp({
   authToken,
@@ -61,6 +77,9 @@ const app = buildApp({
   objectStore,
   handleInboundMessage,
   updateMessageEventStatus: updateMessageEventStatusBySid,
+  stripeSecretKey,
+  stripeWebhookSecret,
+  sendClient,
 });
 
 app.listen({ port: Number(process.env.PORT ?? 3000), host: '0.0.0.0' }).catch((error: unknown) => {

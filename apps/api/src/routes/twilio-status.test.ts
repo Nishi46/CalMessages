@@ -32,6 +32,9 @@ function buildTestApp(updateMessageEventStatus: (sid: string, status: string) =>
       objectStore: { putObject: vi.fn(), getObject: vi.fn() },
       handleInboundMessage: vi.fn(),
       updateMessageEventStatus,
+      stripeSecretKey: 'sk_test_fake',
+      stripeWebhookSecret: 'whsec_fake',
+      sendClient: { send: vi.fn() },
     },
     { logger: false },
   );
