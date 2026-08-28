@@ -4,6 +4,7 @@ import {
   createUser,
   getDailyTotals,
   getPool,
+  getSubscriptionStatus,
   getUserByPhone,
 } from '@tally/db-consumer';
 import type { TwilioSendClient } from '@tally/messaging';
@@ -536,6 +537,134 @@ describe('createInboundMessageHandler — correction/edit resolution (09 §E)', 
 
     const current = await getUserByPhone(phone);
     expect(current?.conversationState).toBe('idle');
+  });
+});
+
+// 11 breakdown §B: free-tier metering and the paywall trigger it feeds.
+// Seeds the subscription row directly via SQL (same pattern as the
+// conversation_state seeding above) rather than logging up to the limit
+// meal-by-meal, so each test only exercises the one crossing under test.
+describe('createInboundMessageHandler — free-tier metering & paywall trigger (11 breakdown §B)', () => {
+  async function seedSubscription(userId: string, freeAnalysesUsed: number): Promise<void> {
+    await getPool().query('INSERT INTO subscription (user_id, free_analyses_used) VALUES ($1, $2)', [
+      userId,
+      freeAnalysesUsed,
+    ]);
+  }
+
+  it('the log that crosses the limit is delivered in full, followed by a separate paywall message', async () => {
+    const phone = `+1${Date.now()}21`;
+    const user = await createUser(phone);
+    await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
+    await seedSubscription(user.id, 19); // default free_analyses_limit is 20 — this log crosses it
+    const sendClient = fakeSendClient();
+    const candidate = fakeCandidate({ confidence: 'high' });
+    const handleInboundMessage = createInboundMessageHandler({
+      sendClient,
+      visionProvider: fakeVisionProvider(vi.fn().mockResolvedValue(candidate)),
+      textParser: noTextParser(),
+    });
+
+    await handleInboundMessage({ userId: user.id, photoKey: 'meal-photos/abc', currentState: 'idle' });
+
+    // Build Spec §4.6 step 1 — the log reply goes out first, in full, and
+    // only then the paywall message follows as a second, separate send.
+    expect(sendClient.send).toHaveBeenCalledTimes(2);
+    const [, logReplyBody] = sendClient.send.mock.calls[0] as [string, string];
+    expect(logReplyBody).toContain('Logged: 210 cal, 18g protein, 2g carbs, 15g fat.');
+    const [, paywallBody] = sendClient.send.mock.calls[1] as [string, string];
+    expect(paywallBody).toContain('free logs');
+
+    const { rows } = await getPool().query<{ type: string }>(
+      `SELECT type FROM message_event WHERE user_id = $1 ORDER BY sent_at`,
+      [user.id],
+    );
+    expect(rows.map((r) => r.type)).toEqual(['log_reply', 'paywall']);
+
+    const current = await getUserByPhone(phone);
+    expect(current?.conversationState).toBe('awaiting_checkout');
+
+    const subscription = await getSubscriptionStatus(user.id);
+    expect(subscription?.freeAnalysesUsed).toBe(20);
+  });
+
+  it('does not fire the paywall on a log that stays under the limit', async () => {
+    const phone = `+1${Date.now()}22`;
+    const user = await createUser(phone);
+    await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
+    await seedSubscription(user.id, 18); // this log lands at 19, one short of the limit
+    const sendClient = fakeSendClient();
+    const candidate = fakeCandidate({ confidence: 'high' });
+    const handleInboundMessage = createInboundMessageHandler({
+      sendClient,
+      visionProvider: fakeVisionProvider(vi.fn().mockResolvedValue(candidate)),
+      textParser: noTextParser(),
+    });
+
+    await handleInboundMessage({ userId: user.id, photoKey: 'meal-photos/abc', currentState: 'idle' });
+
+    expect(sendClient.send).toHaveBeenCalledTimes(1);
+    const current = await getUserByPhone(phone);
+    expect(current?.conversationState).toBe('idle');
+
+    const subscription = await getSubscriptionStatus(user.id);
+    expect(subscription?.freeAnalysesUsed).toBe(19);
+  });
+
+  it('does not re-fire the paywall on a log logged while already over the limit', async () => {
+    const phone = `+1${Date.now()}23`;
+    const user = await createUser(phone);
+    // Already past the limit but still idle — the state a webhook race or a
+    // manually-reset row could leave a user in; this log must not re-fire
+    // the paywall just because usage is still >= the limit.
+    await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
+    await seedSubscription(user.id, 25);
+    const sendClient = fakeSendClient();
+    const candidate = fakeCandidate({ confidence: 'high' });
+    const handleInboundMessage = createInboundMessageHandler({
+      sendClient,
+      visionProvider: fakeVisionProvider(vi.fn().mockResolvedValue(candidate)),
+      textParser: noTextParser(),
+    });
+
+    await handleInboundMessage({ userId: user.id, photoKey: 'meal-photos/abc', currentState: 'idle' });
+
+    expect(sendClient.send).toHaveBeenCalledTimes(1);
+    const current = await getUserByPhone(phone);
+    expect(current?.conversationState).toBe('idle');
+
+    const subscription = await getSubscriptionStatus(user.id);
+    expect(subscription?.freeAnalysesUsed).toBe(26);
+  });
+
+  it('also fires from the awaiting_clarification completion path, not just the fast path', async () => {
+    const phone = `+1${Date.now()}24`;
+    const user = await createUser(phone);
+    const candidate = fakeCandidate({ confidence: 'low' });
+    await getPool().query(
+      'UPDATE "user" SET conversation_state = $2, conversation_context = $3 WHERE id = $1',
+      [user.id, 'awaiting_clarification', JSON.stringify({ pendingKind: 'meal_candidate', candidate })],
+    );
+    await seedSubscription(user.id, 19);
+    const sendClient = fakeSendClient();
+    const handleInboundMessage = createInboundMessageHandler({
+      sendClient,
+      visionProvider: noVisionProvider(),
+      textParser: noTextParser(),
+    });
+
+    await handleInboundMessage({
+      userId: user.id,
+      text: 'it was 3 eggs',
+      currentState: 'awaiting_clarification',
+    });
+
+    expect(sendClient.send).toHaveBeenCalledTimes(2);
+    const [, paywallBody] = sendClient.send.mock.calls[1] as [string, string];
+    expect(paywallBody).toContain('free logs');
+
+    const current = await getUserByPhone(phone);
+    expect(current?.conversationState).toBe('awaiting_checkout');
   });
 });
 

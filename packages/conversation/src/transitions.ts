@@ -52,6 +52,14 @@ const TRANSITIONS: Record<string, Transition> = {
       { type: 'sendReply', template: 'meal_logged' },
     ],
   },
+  // 11 breakdown §B step 9: fired by billing logic after a meal-log write
+  // crosses the free-tier limit — always from 'idle', since every write path
+  // (fast meal_content and the clarification-answer completion above) lands
+  // in 'idle' before this second-stage transition is even considered.
+  [key('idle', 'limit_crossed')]: {
+    toState: 'awaiting_checkout',
+    sideEffects: [{ type: 'sendReply', template: 'paywall' }],
+  },
 };
 
 // Same state, no side effects. A miss must never throw (04 §14) — an

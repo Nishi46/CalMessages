@@ -142,6 +142,7 @@ export function createInboundMessageHandler(deps: RouterDeps) {
       ...existingContext,
       ...captureAnswerForState(currentState, payload.text),
     };
+    let crossedFreeTierLimit = false;
 
     await applySideEffects(transition.sideEffects, {
       sendReply: async (text) => {
@@ -169,46 +170,99 @@ export function createInboundMessageHandler(deps: RouterDeps) {
             'writeMealLog fired in awaiting_clarification without a held meal_candidate',
           );
         }
-        return writeMealLogAndComposeReply(user, pending.candidate, 'text');
+        const outcome = await writeMealLogAndComposeReply(user, pending.candidate, 'text');
+        crossedFreeTierLimit = outcome.crossedFreeTierLimit;
+        return outcome.result;
       },
     });
 
-    await updateUserState(payload.userId, transition.toState, mergedContext);
+    // 11 breakdown §B step 9: the paywall transition supersedes the normal
+    // 'idle' write below rather than following it — one state transition per
+    // message, same as every other branch in this handler.
+    if (crossedFreeTierLimit) {
+      await triggerPaywall(payload.userId, deps);
+    } else {
+      await updateUserState(payload.userId, transition.toState, mergedContext);
+    }
   };
+}
+
+// crossedFreeTierLimit is surfaced alongside the render vars rather than
+// folded into MealLogWriteResult — it drives a whole second transition (the
+// paywall, 11 breakdown §B), not a template placeholder, so it stays out of
+// the vars applySideEffects threads into the *next* sendReply.
+interface MealLogWriteOutcome {
+  result: MealLogWriteResult;
+  crossedFreeTierLimit: boolean;
 }
 
 async function writeMealLogAndComposeReply(
   user: User,
   candidate: MealCandidate,
   source: MealSource,
-): Promise<MealLogWriteResult> {
+): Promise<MealLogWriteOutcome> {
   const localDate = computeLocalDate(new Date(), user.timezone);
   // 11 breakdown §A step 4: the meal_log insert and the free-tier increment
   // have to commit or roll back together (04 §8.1) — getOrCreateSubscriptionForUser
   // runs first, outside the transaction, since only the increment itself
   // needs atomicity with the log write, not the row's insert-on-first-use.
   await getOrCreateSubscriptionForUser(user.id);
-  await withTransaction(async (client) => {
+  const subscription = await withTransaction(async (client) => {
     await createMealLog(user.id, candidate, source, localDate, client);
-    await incrementFreeAnalysesUsed(client, user.id);
+    return incrementFreeAnalysesUsed(client, user.id);
   });
+  // 11 breakdown §B step 7: increments always step by exactly 1, so the
+  // crossing point (previous value under the limit, new value at/over it) is
+  // hit on exactly one log — the one that brings free_analyses_used to
+  // exactly free_analyses_limit. Every log before that is under it, every
+  // log after is already over it, so equality alone is the crossing check.
+  const crossedFreeTierLimit = subscription.freeAnalysesUsed === subscription.freeAnalysesLimit;
+
   const [totals, goal] = await Promise.all([
     getDailyTotals(user.id, localDate),
     getCurrentGoal(user.id),
   ]);
 
   return {
-    calories: candidate.calories,
-    protein: candidate.protein,
-    carbs: candidate.carbs,
-    fat: candidate.fat,
-    todayCalories: totals.calories,
-    todayProtein: totals.protein,
-    todayCarbs: totals.carbs,
-    todayFat: totals.fat,
-    goalCalories: goal?.dailyCalories ?? '—',
-    itemBreakdown: composeItemBreakdown(candidate.items),
+    result: {
+      calories: candidate.calories,
+      protein: candidate.protein,
+      carbs: candidate.carbs,
+      fat: candidate.fat,
+      todayCalories: totals.calories,
+      todayProtein: totals.protein,
+      todayCarbs: totals.carbs,
+      todayFat: totals.fat,
+      goalCalories: goal?.dailyCalories ?? '—',
+      itemBreakdown: composeItemBreakdown(candidate.items),
+    },
+    crossedFreeTierLimit,
   };
+}
+
+// 11 breakdown §B step 9: the recommended synthetic-trigger route — routes
+// through the same resolveTransition/applySideEffects/updateUserState path
+// as every other transition, rather than setting conversation_state
+// directly from billing code (04 §6.1's one-mechanism goal). Always resolved
+// from 'idle', since both meal-log write paths land in 'idle' first.
+async function triggerPaywall(userId: string, deps: RouterDeps): Promise<void> {
+  const transition = resolveTransition('idle', 'limit_crossed');
+  await applySideEffects(transition.sideEffects, {
+    sendReply: async (text) => {
+      // 11 breakdown §B step 8: Build Spec §4.6 step 1 — this fires only
+      // after the caller's own log-reply sendMessage() has already resolved,
+      // so the log that crossed the threshold is still delivered in full
+      // before the paywall message follows it.
+      await sendMessage(deps.sendClient, userId, text, 'paywall');
+    },
+    mergeContext: async () => {
+      throw new Error('mergeContext should not fire on the limit_crossed path');
+    },
+    createGoal: async () => {
+      throw new Error('createGoal should not fire on the limit_crossed path');
+    },
+  });
+  await updateUserState(userId, transition.toState);
 }
 
 // Build Spec §4.2: "break the reply out by item... so a later correction
@@ -302,6 +356,7 @@ async function finishMealContent(
 
   const transition = resolveMealContentTransition(candidate);
   let heldContext: PendingContext | undefined;
+  let crossedFreeTierLimit = false;
 
   await applySideEffects(transition.sideEffects, {
     sendReply: async (text) => {
@@ -313,7 +368,11 @@ async function finishMealContent(
     createGoal: async () => {
       throw new Error('createGoal should not fire on the meal_content path');
     },
-    writeMealLog: async () => writeMealLogAndComposeReply(user, candidate, source),
+    writeMealLog: async () => {
+      const outcome = await writeMealLogAndComposeReply(user, candidate, source);
+      crossedFreeTierLimit = outcome.crossedFreeTierLimit;
+      return outcome.result;
+    },
     holdCandidate: async (heldCandidate) => {
       heldContext = { pendingKind: 'meal_candidate', candidate: heldCandidate };
     },
@@ -321,9 +380,15 @@ async function finishMealContent(
 
   if (heldContext) {
     await updateUserState(user.id, transition.toState, heldContext);
+  } else if (crossedFreeTierLimit) {
+    // 11 breakdown §B step 9: high/medium confidence normally leaves
+    // conversation_state untouched here (toState is 'idle', same as it
+    // already was) — crossing the limit is the one case on this path that
+    // does need a write, into 'awaiting_checkout'.
+    await triggerPaywall(user.id, deps);
   }
-  // High/medium confidence: toState is 'idle' (unchanged), and the meal is
-  // already durably written by writeMealLog — no state/context update needed.
+  // Otherwise: toState is 'idle' (unchanged), and the meal is already
+  // durably written by writeMealLog — no state/context update needed.
 }
 
 async function handleCorrection(payload: RouterHandoffPayload, deps: RouterDeps): Promise<void> {

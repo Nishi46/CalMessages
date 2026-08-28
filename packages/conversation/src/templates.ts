@@ -63,6 +63,14 @@ export const TEMPLATES = {
   // enforcement mechanism for it, so any future edit here needs the same
   // scrutiny, not just a tone pass.
   proactive_checkin: "How'd dinner go tonight?",
+
+  // --- Free-tier paywall (Sprint 6 §B step 9) ---
+  // Placeholder copy: 11 breakdown §C step 11 replaces this with the exact
+  // Build Spec §4.6 wording ("That's your 20 free logs used... $9.99/mo...")
+  // once createCheckoutLink exists to supply the link it interpolates — no
+  // sense wiring an unrendered {checkoutLink} placeholder into a live
+  // message before that lands.
+  paywall: "You've used all your free logs. Upgrade to keep going — we'll text a checkout link shortly.",
 } as const satisfies Record<string, string>;
 
 export type TemplateId = keyof typeof TEMPLATES;
