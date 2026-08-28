@@ -1,5 +1,5 @@
 import type { MealCandidate, MealCandidateItem } from '@tally/shared-types';
-import { getPool } from './pool.js';
+import { getPool, type DbClient } from './pool.js';
 
 export type MealSource = 'photo' | 'text' | 'voice';
 
@@ -66,13 +66,17 @@ const MEAL_LOG_COLUMNS = `
   corrected_from_id, soft_deleted_at
 `;
 
+// `client` defaults to the pool so every pre-Sprint-6 call site is
+// unaffected — 10 breakdown §A step 4 passes an open transaction client here
+// instead, so this insert and the free-tier increment commit atomically.
 export async function createMealLog(
   userId: string,
   candidate: MealCandidate,
   source: MealSource,
   localDate: string,
+  client: DbClient = getPool(),
 ): Promise<MealLog> {
-  const { rows } = await getPool().query<MealLogRow>(
+  const { rows } = await client.query<MealLogRow>(
     `INSERT INTO meal_log (user_id, items, calories, protein, carbs, fat, confidence, source, local_date)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING ${MEAL_LOG_COLUMNS}`,

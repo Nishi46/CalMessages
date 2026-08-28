@@ -4,9 +4,12 @@ import {
   createMealLog,
   getCurrentGoal,
   getDailyTotals,
+  getOrCreateSubscriptionForUser,
   getUserById,
+  incrementFreeAnalysesUsed,
   softDeleteMealLog,
   updateUserState,
+  withTransaction,
   type MealLog,
   type MealSource,
   type User,
@@ -180,7 +183,15 @@ async function writeMealLogAndComposeReply(
   source: MealSource,
 ): Promise<MealLogWriteResult> {
   const localDate = computeLocalDate(new Date(), user.timezone);
-  await createMealLog(user.id, candidate, source, localDate);
+  // 11 breakdown §A step 4: the meal_log insert and the free-tier increment
+  // have to commit or roll back together (04 §8.1) — getOrCreateSubscriptionForUser
+  // runs first, outside the transaction, since only the increment itself
+  // needs atomicity with the log write, not the row's insert-on-first-use.
+  await getOrCreateSubscriptionForUser(user.id);
+  await withTransaction(async (client) => {
+    await createMealLog(user.id, candidate, source, localDate, client);
+    await incrementFreeAnalysesUsed(client, user.id);
+  });
   const [totals, goal] = await Promise.all([
     getDailyTotals(user.id, localDate),
     getCurrentGoal(user.id),
