@@ -1,6 +1,6 @@
 import { getPool } from '@tally/db-consumer';
-import type { Job } from 'bullmq';
 import { runEvaluationLoop } from './evaluationLoop.js';
+import { createNudgeJobProcessor } from './nudgeJobProcessor.js';
 import { createNudgeQueue, createNudgeWorker, type NudgeJobData } from './queue.js';
 import { createRedisConnection } from './redis.js';
 import { tryAcquireSchedulerLeadership, type SchedulerLeadership } from './schedulerLock.js';
@@ -26,13 +26,14 @@ if (!Number.isFinite(schedulerTickMs) || schedulerTickMs <= 0) {
 const connection = createRedisConnection(redisUrl);
 const nudgeQueue = createNudgeQueue(connection);
 
-// Placeholder job processor — §E step 17 replaces this with the
-// authoritative frequency-cap check followed by the real sendMessage() call.
-async function processNudgeJob(job: Job<NudgeJobData>): Promise<void> {
-  console.log(`[worker] would send nudge for user ${job.data.userId} (${job.data.localDate})`);
+// Placeholder send — §E step 17 replaces this with the real
+// sendMessage(client, userId, body, 'nudge') call; the authoritative
+// frequency-cap check ahead of it (§D step 14) is real as of this sprint.
+async function sendNudgePlaceholder(data: NudgeJobData): Promise<void> {
+  console.log(`[worker] would send nudge for user ${data.userId} (${data.localDate})`);
 }
 
-const nudgeWorker = createNudgeWorker(connection, processNudgeJob);
+const nudgeWorker = createNudgeWorker(connection, createNudgeJobProcessor(sendNudgePlaceholder));
 
 async function runSchedulerTick(): Promise<void> {
   await runEvaluationLoop(nudgeQueue, new Date());

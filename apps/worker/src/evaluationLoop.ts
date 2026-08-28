@@ -8,8 +8,8 @@ import { NUDGE_QUEUE_NAME } from './queue.js';
 
 // 04 §7.3: default hard cap of one proactive send per day. Checked here as
 // the scheduler's cheap pre-filter (09 breakdown §D step 13); the queue
-// consumer re-checks authoritatively immediately before sending (§D step 14,
-// not yet implemented) to close the race Architecture §7 describes.
+// consumer (nudgeJobProcessor.ts) re-checks authoritatively immediately
+// before sending (§D step 14) to close the race Architecture §7 describes.
 export const DAILY_NUDGE_CAP = 1;
 
 // Placeholder 5-day disengagement formula — Build Spec §5 specifies
