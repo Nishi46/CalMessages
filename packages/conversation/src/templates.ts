@@ -52,6 +52,17 @@ export const TEMPLATES = {
   // itself terminal, same shape as meal_content's isFood: false path — a
   // reply, not a transition, so there's nothing to hold or ask next.
   correction_not_found: "I couldn't find anything recent to correct.",
+
+  // --- Proactive check-in (Sprint 5 §E) ---
+  // Build Spec §4.4's sample transcript, verbatim — short, specific, easily
+  // ignored. No streak count, no "you missed," no cross-user comparison, per
+  // §5's guardrail table: "No streaks framed as something lost, no guilt
+  // language, no comparison to other users. A skipped day is never
+  // referenced as a failure." This is the first template that rule actually
+  // applies to — Sprint 7's safety guardrail treats template review as the
+  // enforcement mechanism for it, so any future edit here needs the same
+  // scrutiny, not just a tone pass.
+  proactive_checkin: "How'd dinner go tonight?",
 } as const satisfies Record<string, string>;
 
 export type TemplateId = keyof typeof TEMPLATES;

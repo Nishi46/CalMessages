@@ -104,3 +104,14 @@ describe('correction/delete templates (09 §F, breakdown step 25)', () => {
     expect(renderTemplate('correction_not_found')).toContain("couldn't find anything recent");
   });
 });
+
+describe('proactive_checkin (09 §E step 16)', () => {
+  it('matches Build Spec §4.4\'s sample transcript exactly', () => {
+    expect(renderTemplate('proactive_checkin')).toBe("How'd dinner go tonight?");
+  });
+
+  it('contains no streak count, guilt language, or cross-user comparison, per Build Spec §5', () => {
+    const rendered = renderTemplate('proactive_checkin').toLowerCase();
+    expect(rendered).not.toMatch(/streak|missed|other user|everyone else/);
+  });
+});

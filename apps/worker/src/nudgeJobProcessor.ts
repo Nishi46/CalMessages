@@ -16,9 +16,9 @@ import type { NudgeJobData } from './queue.js';
 // Aborting here is a normal, non-error outcome: the job still completes
 // successfully, it just sends nothing, so BullMQ doesn't retry it.
 //
-// `sendNudge` is the actual send — a placeholder console.log for now; §E
-// step 17 replaces the caller's implementation with the real
-// sendMessage(client, userId, body, 'nudge') call, unchanged here.
+// `sendNudge` is the actual send — index.ts wires it to the real
+// sendMessage(client, userId, body, 'nudge') call (§E step 17); accepted as
+// a parameter here so this file stays free of Twilio/template specifics.
 export function createNudgeJobProcessor(sendNudge: (data: NudgeJobData) => Promise<void>): Processor<NudgeJobData> {
   return async (job: Job<NudgeJobData>) => {
     const sentToday = await countNudgesSentToday(job.data.userId, job.data.localDate);
