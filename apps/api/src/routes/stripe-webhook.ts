@@ -1,7 +1,14 @@
 import Stripe from 'stripe';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { applySideEffects, resolveTransition, type ConversationState } from '@tally/conversation';
-import { getUserById, updateUserState, upsertSubscriptionFromCheckout } from '@tally/db-consumer';
+import {
+  getUserById,
+  hasProcessedStripeEvent,
+  markStripeEventProcessed,
+  updateUserState,
+  upsertSubscriptionFromCheckout,
+  withTransaction,
+} from '@tally/db-consumer';
 import { sendMessage, type TwilioSendClient } from '@tally/messaging';
 
 export interface StripeWebhookDeps {
@@ -35,11 +42,19 @@ export function registerStripeWebhookRoute(app: FastifyInstance, deps: StripeWeb
         return '';
       }
 
+      // 11 breakdown §D step 14 (04 §8.3): checked before any processing.
+      // Stripe explicitly documents at-least-once delivery, so a retried
+      // event has to be recognized and skipped here, not reprocessed.
+      if (await hasProcessedStripeEvent(event.id)) {
+        reply.code(200);
+        return '';
+      }
+
       // 11 breakdown §C step 13. Other event types (04 §8.4's subscription
       // updated/canceled backstop) are a later sprint step, not this one —
       // accepted (200, no retry storm) and otherwise ignored here.
       if (event.type === 'checkout.session.completed') {
-        await handleCheckoutSessionCompleted(event.data.object, deps.sendClient);
+        await handleCheckoutSessionCompleted(event.id, event.data.object, deps.sendClient);
       }
 
       reply.code(200);
@@ -49,6 +64,7 @@ export function registerStripeWebhookRoute(app: FastifyInstance, deps: StripeWeb
 }
 
 async function handleCheckoutSessionCompleted(
+  eventId: string,
   session: Stripe.Checkout.Session,
   sendClient: TwilioSendClient,
 ): Promise<void> {
@@ -61,33 +77,50 @@ async function handleCheckoutSessionCompleted(
   // (createCheckoutLink always passes client_reference_id, and Stripe
   // populates customer/subscription once checkout actually completes) — this
   // guards a malformed or unexpected event rather than a path this app's own
-  // flow can produce.
+  // flow can produce. Still marked processed: retrying a malformed event
+  // wouldn't produce a different result, so there's nothing to gain by
+  // leaving it eligible for endless reprocessing.
   if (!userId || !stripeCustomerId || !stripeSubscriptionId) {
+    await markStripeEventProcessed(eventId);
     return;
   }
 
-  await upsertSubscriptionFromCheckout(userId, stripeCustomerId, stripeSubscriptionId);
-
   const user = await getUserById(userId);
   if (!user) {
+    await markStripeEventProcessed(eventId);
     return;
   }
 
   // 11 breakdown §C step 13: same synthetic-trigger route as the paywall
   // trigger itself (§B step 9) — one auditable mechanism for every
   // conversation_state change, not a second direct-write path from billing
-  // code. Resolving against the user's actual current state (rather than
-  // assuming 'awaiting_checkout') means a retried delivery of the same
-  // event — this handler doesn't dedup on Stripe's event ID yet, that's 11
-  // breakdown §D — finds the user already back in 'idle' and falls back to
-  // a no-op instead of sending a second confirmation text. Not a full
-  // idempotency guarantee (a race between two concurrent deliveries isn't
-  // closed by this), just a free side benefit of reusing the real lookup.
+  // code. Resolved once, up front, against the user's actual current state,
+  // so the transaction below only writes a state change when there's a real
+  // one to make.
   const transition = resolveTransition(user.conversationState as ConversationState, 'checkout_completed');
+
+  // 11 breakdown §D step 14: the subscription upsert, the state transition,
+  // and the processed-event marker all commit in one transaction — the
+  // marker is never written after them, since a crash in between would
+  // leave this event's processing undone but also unmarked, making it
+  // eligible for a retry to redo (and, worse, re-send the confirmation text
+  // for) work that already happened.
+  await withTransaction(async (client) => {
+    await upsertSubscriptionFromCheckout(userId, stripeCustomerId, stripeSubscriptionId, client);
+    if (!transition.isFallback) {
+      await updateUserState(userId, transition.toState, undefined, client);
+    }
+    await markStripeEventProcessed(eventId, client);
+  });
+
   if (transition.isFallback) {
     return;
   }
 
+  // The confirmation text itself is sent only after the transaction above
+  // has committed — same ordering as the meal-log write's transaction-then-
+  // reply pattern (11 breakdown §A step 4), so a message never goes out for
+  // a DB write that ended up rolled back.
   await applySideEffects(transition.sideEffects, {
     sendReply: async (text) => {
       await sendMessage(sendClient, userId, text, 'system');
@@ -99,5 +132,4 @@ async function handleCheckoutSessionCompleted(
       throw new Error('createGoal should not fire on the checkout_completed path');
     },
   });
-  await updateUserState(userId, transition.toState);
 }

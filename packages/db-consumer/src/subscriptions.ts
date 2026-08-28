@@ -1,5 +1,5 @@
 import type pg from 'pg';
-import { getPool } from './pool.js';
+import { getPool, type DbClient } from './pool.js';
 
 export interface Subscription {
   id: string;
@@ -88,13 +88,17 @@ export async function getSubscriptionStatus(userId: string): Promise<Subscriptio
 // 13). ON CONFLICT (user_id) rather than an assumed-existing UPDATE, since a
 // user who somehow reaches checkout before ever logging a meal (and so
 // before getOrCreateSubscriptionForUser has run) would otherwise have no row
-// for this to update.
+// for this to update. `client` defaults to the pool so §C's usage is
+// unaffected — 11 breakdown §D step 14 passes an open transaction client
+// here instead, so this write and the processed_stripe_event marker commit
+// atomically.
 export async function upsertSubscriptionFromCheckout(
   userId: string,
   stripeCustomerId: string,
   stripeSubscriptionId: string,
+  client: DbClient = getPool(),
 ): Promise<Subscription> {
-  const { rows } = await getPool().query<SubscriptionRow>(
+  const { rows } = await client.query<SubscriptionRow>(
     `INSERT INTO subscription (user_id, status, stripe_customer_id, stripe_subscription_id)
      VALUES ($1, 'active', $2, $3)
      ON CONFLICT (user_id) DO UPDATE

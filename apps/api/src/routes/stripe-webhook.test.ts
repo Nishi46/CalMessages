@@ -16,11 +16,20 @@ function signedPayload(event: Record<string, unknown>): { payload: string; signa
   return { payload, signature };
 }
 
+let eventCounter = 0;
+
+// Each call gets a fresh event id by default — now that idempotency is
+// enforced (11 breakdown §D step 14), reusing one hardcoded id across tests
+// would make every test after the first look like a replay of the first and
+// get silently skipped. Tests that specifically exercise replay behavior
+// pass the same signed payload to app.inject twice instead of calling this
+// twice, so they're unaffected.
 function checkoutSessionCompletedEvent(
   overrides: Partial<{ client_reference_id: string | null; customer: string | null; subscription: string | null }> = {},
 ): Record<string, unknown> {
+  eventCounter += 1;
   return {
-    id: 'evt_test_1',
+    id: `evt_test_${Date.now()}_${eventCounter}`,
     object: 'event',
     type: 'checkout.session.completed',
     data: {
@@ -174,10 +183,14 @@ describe('POST /webhooks/stripe — checkout.session.completed (11 breakdown §C
     });
     expect(first.statusCode).toBe(200);
 
-    // Same fixture, replayed — the route doesn't dedup on Stripe's event ID
-    // yet (that's 11 breakdown §D), but by the second delivery the user is
-    // already back in 'idle', so resolveTransition('idle', 'checkout_completed')
-    // falls back to a no-op rather than sending a second text.
+    // 11 breakdown §D step 14: same fixture (same event id), replayed. Reset
+    // the user back to 'awaiting_checkout' first — if this were only ever
+    // protected by resolveTransition falling back on the user's real state
+    // (the incidental protection §C step 13 landed with, before this event-
+    // ID dedup existed), that reset would defeat it and a second text would
+    // go out. It doesn't, because hasProcessedStripeEvent now catches the
+    // replay before any of that logic even runs.
+    await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'awaiting_checkout']);
     const second = await app.inject({
       method: 'POST',
       url: PATH,
@@ -187,6 +200,29 @@ describe('POST /webhooks/stripe — checkout.session.completed (11 breakdown §C
     expect(second.statusCode).toBe(200);
 
     const { rows } = await getPool().query('SELECT 1 FROM message_event WHERE user_id = $1', [user.id]);
+    expect(rows).toHaveLength(1);
+    // The user is left exactly where the reset put it — the replay never
+    // reached updateUserState either.
+    const current = await getUserByPhone(phone);
+    expect(current?.conversationState).toBe('awaiting_checkout');
+  });
+
+  it('records the Stripe event id in processed_stripe_event after handling it', async () => {
+    const phone = `+1${Date.now()}3`;
+    const user = await createUser(phone);
+    await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'awaiting_checkout']);
+    const app = buildTestApp();
+    const event = checkoutSessionCompletedEvent({ client_reference_id: user.id });
+    const { payload, signature } = signedPayload(event);
+
+    await app.inject({
+      method: 'POST',
+      url: PATH,
+      headers: { 'stripe-signature': signature, 'content-type': 'application/json' },
+      payload,
+    });
+
+    const { rows } = await getPool().query('SELECT 1 FROM processed_stripe_event WHERE id = $1', [event.id]);
     expect(rows).toHaveLength(1);
   });
 

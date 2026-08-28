@@ -1,6 +1,7 @@
 import { renderTemplate } from '@tally/conversation';
 import { createUser, getPool } from '@tally/db-consumer';
 import { sendMessage, type TwilioSendClient } from '@tally/messaging';
+import { computeLocalDate } from '@tally/time';
 import { QueueEvents } from 'bullmq';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { evaluateUserForNudge } from './evaluationLoop.js';
@@ -80,7 +81,10 @@ describe('double-fire race (09 breakdown §F step 22)', () => {
 
   it('authoritative check: two distinct jobs targeting the same user/day (dedup bypassed) still only send once', async () => {
     const user = await createUser(`+1${Date.now()}1`);
-    const localDate = '2026-08-27';
+    // The processor's authoritative check buckets by the real send time
+    // (sendMessage -> createMessageEvent uses now()), so this has to match
+    // today's actual local date, not a fixed simulated instant.
+    const localDate = computeLocalDate(new Date(), user.timezone);
 
     const connection = createRedisConnection(redisUrl);
     const queue = createNudgeQueue(connection);

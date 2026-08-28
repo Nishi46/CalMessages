@@ -412,11 +412,12 @@ describe('createInboundMessageHandler — correction/edit resolution (09 §E)', 
     const phone = `+1${Date.now()}12`;
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
+    const today = computeLocalDate(new Date(), user.timezone);
     const original = await createMealLog(
       user.id,
       fakeCandidate({ calories: 300, protein: 25, carbs: 5, fat: 20 }),
       'photo',
-      '2026-08-27',
+      today,
     );
     const sendClient = fakeSendClient();
     const replacement = fakeCandidate({ calories: 210, protein: 18, carbs: 2, fat: 15 });
@@ -454,7 +455,8 @@ describe('createInboundMessageHandler — correction/edit resolution (09 §E)', 
     const phone = `+1${Date.now()}13`;
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
-    await createMealLog(user.id, fakeCandidate({ calories: 300 }), 'photo', '2026-08-27');
+    const today = computeLocalDate(new Date(), user.timezone);
+    await createMealLog(user.id, fakeCandidate({ calories: 300 }), 'photo', today);
     const sendClient = fakeSendClient();
     const handleInboundMessage = createInboundMessageHandler({
       sendClient,

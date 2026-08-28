@@ -70,8 +70,8 @@ describe('frequency cap boundary (09 breakdown §F step 21)', () => {
     for (let i = 0; i < count; i++) {
       await getPool().query(
         `INSERT INTO message_event (user_id, direction, type, sent_at, delivery_status)
-         VALUES ($1, 'outbound', 'nudge', now(), 'sent')`,
-        [user.id],
+         VALUES ($1, 'outbound', 'nudge', $2, 'sent')`,
+        [user.id, NUDGE_WINDOW_INSTANT.toISOString()],
       );
     }
     return user;

@@ -1,4 +1,4 @@
-import { getPool } from './pool.js';
+import { getPool, type DbClient } from './pool.js';
 
 export interface User {
   id: string;
@@ -73,12 +73,17 @@ export async function getActiveUsersForScheduling(): Promise<User[]> {
   return rows.map(rowToUser);
 }
 
+// `client` defaults to the pool so every pre-Sprint-6 call site is
+// unaffected — 11 breakdown §D step 14 passes an open transaction client
+// here instead, so this write and the processed_stripe_event marker commit
+// atomically with the rest of a webhook's DB-side effects.
 export async function updateUserState(
   userId: string,
   conversationState: string,
   conversationContext: unknown = null,
+  client: DbClient = getPool(),
 ): Promise<User> {
-  const { rows } = await getPool().query<UserRow>(
+  const { rows } = await client.query<UserRow>(
     `UPDATE "user" SET conversation_state = $2, conversation_context = $3 WHERE id = $1 RETURNING *`,
     [userId, conversationState, conversationContext === null ? null : JSON.stringify(conversationContext)],
   );
