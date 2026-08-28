@@ -9,6 +9,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@tally/billing": "*",
     "@tally/conversation": "*",
     "@tally/db-consumer": "*",
     "@tally/messaging": "*",

@@ -1,5 +1,11 @@
 import Stripe from 'stripe';
-import { createUser, getPool, getSubscriptionStatus, getUserByPhone } from '@tally/db-consumer';
+import {
+  createUser,
+  getPool,
+  getSubscriptionStatus,
+  getUserByPhone,
+  upsertSubscriptionFromCheckout,
+} from '@tally/db-consumer';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../server.js';
 
@@ -18,27 +24,53 @@ function signedPayload(event: Record<string, unknown>): { payload: string; signa
 
 let eventCounter = 0;
 
-// Each call gets a fresh event id by default — now that idempotency is
-// enforced (11 breakdown §D step 14), reusing one hardcoded id across tests
+// Every id below defaults to a fresh, unique value — event ids because
+// idempotency is enforced (11 breakdown §D step 14) and a reused literal
 // would make every test after the first look like a replay of the first and
-// get silently skipped. Tests that specifically exercise replay behavior
-// pass the same signed payload to app.inject twice instead of calling this
-// twice, so they're unaffected.
+// get silently skipped; Stripe customer/subscription ids because
+// stripe_subscription_id is uniquely constrained (11 breakdown §E) and a
+// reused literal collides with a still-live row from a previous run. Tests
+// that specifically exercise replay behavior pass the same signed payload
+// to app.inject twice instead of building a fresh event twice, so they're
+// unaffected.
+function uniqueId(prefix: string): string {
+  eventCounter += 1;
+  return `${prefix}_${Date.now()}_${eventCounter}`;
+}
+
 function checkoutSessionCompletedEvent(
   overrides: Partial<{ client_reference_id: string | null; customer: string | null; subscription: string | null }> = {},
 ): Record<string, unknown> {
-  eventCounter += 1;
   return {
-    id: `evt_test_${Date.now()}_${eventCounter}`,
+    id: uniqueId('evt_test'),
     object: 'event',
     type: 'checkout.session.completed',
     data: {
       object: {
-        id: 'cs_test_1',
+        id: uniqueId('cs_test'),
         object: 'checkout.session',
         client_reference_id: 'user-123',
-        customer: 'cus_test_1',
-        subscription: 'sub_test_1',
+        customer: uniqueId('cus_test'),
+        subscription: uniqueId('sub_test'),
+        ...overrides,
+      },
+    },
+  };
+}
+
+function subscriptionStatusEvent(
+  type: 'customer.subscription.updated' | 'customer.subscription.deleted',
+  overrides: Partial<{ id: string; status: string }> = {},
+): Record<string, unknown> {
+  return {
+    id: uniqueId('evt_test'),
+    object: 'event',
+    type,
+    data: {
+      object: {
+        id: uniqueId('sub_test'),
+        object: 'subscription',
+        status: 'past_due',
         ...overrides,
       },
     },
@@ -102,11 +134,13 @@ describe('POST /webhooks/stripe — checkout.session.completed (11 breakdown §C
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'awaiting_checkout']);
     const app = buildTestApp();
+    const customerId = uniqueId('cus_real_flow');
+    const subscriptionId = uniqueId('sub_real_flow');
     const { payload, signature } = signedPayload(
       checkoutSessionCompletedEvent({
         client_reference_id: user.id,
-        customer: 'cus_real_flow',
-        subscription: 'sub_real_flow',
+        customer: customerId,
+        subscription: subscriptionId,
       }),
     );
 
@@ -121,8 +155,8 @@ describe('POST /webhooks/stripe — checkout.session.completed (11 breakdown §C
 
     const subscription = await getSubscriptionStatus(user.id);
     expect(subscription?.status).toBe('active');
-    expect(subscription?.stripeCustomerId).toBe('cus_real_flow');
-    expect(subscription?.stripeSubscriptionId).toBe('sub_real_flow');
+    expect(subscription?.stripeCustomerId).toBe(customerId);
+    expect(subscription?.stripeSubscriptionId).toBe(subscriptionId);
 
     const current = await getUserByPhone(phone);
     expect(current?.conversationState).toBe('idle');
@@ -224,6 +258,150 @@ describe('POST /webhooks/stripe — checkout.session.completed (11 breakdown §C
 
     const { rows } = await getPool().query('SELECT 1 FROM processed_stripe_event WHERE id = $1', [event.id]);
     expect(rows).toHaveLength(1);
+  });
+});
+
+describe('POST /webhooks/stripe — subscription lifecycle backstop (11 breakdown §E step 15, against a real Postgres)', () => {
+  it('customer.subscription.updated sets status to past_due', async () => {
+    const user = await createUser(`+1${Date.now()}4`);
+    const subscriptionId = uniqueId('sub_lifecycle');
+    await upsertSubscriptionFromCheckout(user.id, uniqueId('cus_lifecycle'), subscriptionId);
+    const app = buildTestApp();
+    const { payload, signature } = signedPayload(
+      subscriptionStatusEvent('customer.subscription.updated', { id: subscriptionId, status: 'past_due' }),
+    );
+
+    const response = await app.inject({
+      method: 'POST',
+      url: PATH,
+      headers: { 'stripe-signature': signature, 'content-type': 'application/json' },
+      payload,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const subscription = await getSubscriptionStatus(user.id);
+    expect(subscription?.status).toBe('past_due');
+  });
+
+  it('customer.subscription.updated recovering to active sets status back to active', async () => {
+    const user = await createUser(`+1${Date.now()}5`);
+    const subscriptionId = uniqueId('sub_lifecycle');
+    await upsertSubscriptionFromCheckout(user.id, uniqueId('cus_lifecycle'), subscriptionId);
+    await getPool().query(`UPDATE subscription SET status = 'past_due' WHERE user_id = $1`, [user.id]);
+    const app = buildTestApp();
+    const { payload, signature } = signedPayload(
+      subscriptionStatusEvent('customer.subscription.updated', { id: subscriptionId, status: 'active' }),
+    );
+
+    await app.inject({
+      method: 'POST',
+      url: PATH,
+      headers: { 'stripe-signature': signature, 'content-type': 'application/json' },
+      payload,
+    });
+
+    const subscription = await getSubscriptionStatus(user.id);
+    expect(subscription?.status).toBe('active');
+  });
+
+  it('customer.subscription.deleted sets status to canceled regardless of the object\'s own status field', async () => {
+    const user = await createUser(`+1${Date.now()}6`);
+    const subscriptionId = uniqueId('sub_lifecycle');
+    await upsertSubscriptionFromCheckout(user.id, uniqueId('cus_lifecycle'), subscriptionId);
+    const app = buildTestApp();
+    // Stripe's deleted subscription object still reports status: 'canceled'
+    // itself in practice, but the handler keys off the event type, not this
+    // field — set to something else here to prove that.
+    const { payload, signature } = signedPayload(
+      subscriptionStatusEvent('customer.subscription.deleted', { id: subscriptionId, status: 'active' }),
+    );
+
+    await app.inject({
+      method: 'POST',
+      url: PATH,
+      headers: { 'stripe-signature': signature, 'content-type': 'application/json' },
+      payload,
+    });
+
+    const subscription = await getSubscriptionStatus(user.id);
+    expect(subscription?.status).toBe('canceled');
+  });
+
+  it('stamps stripe_synced_at on the row it updates', async () => {
+    const user = await createUser(`+1${Date.now()}7`);
+    const subscriptionId = uniqueId('sub_lifecycle');
+    await upsertSubscriptionFromCheckout(user.id, uniqueId('cus_lifecycle'), subscriptionId);
+    await getPool().query(`UPDATE subscription SET stripe_synced_at = NULL WHERE user_id = $1`, [user.id]);
+    const app = buildTestApp();
+    const { payload, signature } = signedPayload(
+      subscriptionStatusEvent('customer.subscription.updated', { id: subscriptionId, status: 'past_due' }),
+    );
+
+    await app.inject({
+      method: 'POST',
+      url: PATH,
+      headers: { 'stripe-signature': signature, 'content-type': 'application/json' },
+      payload,
+    });
+
+    const subscription = await getSubscriptionStatus(user.id);
+    expect(subscription?.stripeSyncedAt).not.toBeNull();
+  });
+
+  it('an unrecognized Stripe status is still marked processed, without writing a status', async () => {
+    const user = await createUser(`+1${Date.now()}8`);
+    const subscriptionId = uniqueId('sub_lifecycle');
+    await upsertSubscriptionFromCheckout(user.id, uniqueId('cus_lifecycle'), subscriptionId);
+    const app = buildTestApp();
+    const event = subscriptionStatusEvent('customer.subscription.updated', {
+      id: subscriptionId,
+      status: 'incomplete',
+    });
+    const { payload, signature } = signedPayload(event);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: PATH,
+      headers: { 'stripe-signature': signature, 'content-type': 'application/json' },
+      payload,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const subscription = await getSubscriptionStatus(user.id);
+    expect(subscription?.status).toBe('active'); // unchanged from upsertSubscriptionFromCheckout's default
+    const { rows } = await getPool().query('SELECT 1 FROM processed_stripe_event WHERE id = $1', [event.id]);
+    expect(rows).toHaveLength(1);
+  });
+
+  it('replaying the same subscription.updated event a second time is a no-op the second time', async () => {
+    const user = await createUser(`+1${Date.now()}9`);
+    const subscriptionId = uniqueId('sub_lifecycle');
+    await upsertSubscriptionFromCheckout(user.id, uniqueId('cus_lifecycle'), subscriptionId);
+    const app = buildTestApp();
+    const { payload, signature } = signedPayload(
+      subscriptionStatusEvent('customer.subscription.updated', { id: subscriptionId, status: 'past_due' }),
+    );
+
+    await app.inject({
+      method: 'POST',
+      url: PATH,
+      headers: { 'stripe-signature': signature, 'content-type': 'application/json' },
+      payload,
+    });
+    // Recover to active locally, out of band — if the replay below actually
+    // reprocessed the event, it would stomp this back to past_due.
+    await getPool().query(`UPDATE subscription SET status = 'active' WHERE user_id = $1`, [user.id]);
+
+    const second = await app.inject({
+      method: 'POST',
+      url: PATH,
+      headers: { 'stripe-signature': signature, 'content-type': 'application/json' },
+      payload,
+    });
+
+    expect(second.statusCode).toBe(200);
+    const subscription = await getSubscriptionStatus(user.id);
+    expect(subscription?.status).toBe('active');
   });
 
   afterAll(async () => {

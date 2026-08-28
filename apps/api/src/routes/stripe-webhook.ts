@@ -1,10 +1,12 @@
 import Stripe from 'stripe';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { mapStripeSubscriptionStatus } from '@tally/billing';
 import { applySideEffects, resolveTransition, type ConversationState } from '@tally/conversation';
 import {
   getUserById,
   hasProcessedStripeEvent,
   markStripeEventProcessed,
+  syncSubscriptionStatusFromStripe,
   updateUserState,
   upsertSubscriptionFromCheckout,
   withTransaction,
@@ -50,12 +52,13 @@ export function registerStripeWebhookRoute(app: FastifyInstance, deps: StripeWeb
         return '';
       }
 
-      // 11 breakdown §C step 13. Other event types (04 §8.4's subscription
-      // updated/canceled backstop) are a later sprint step, not this one —
-      // accepted (200, no retry storm) and otherwise ignored here.
       if (event.type === 'checkout.session.completed') {
         await handleCheckoutSessionCompleted(event.id, event.data.object, deps.sendClient);
+      } else if (event.type === 'customer.subscription.updated' || event.type === 'customer.subscription.deleted') {
+        await handleSubscriptionStatusEvent(event.id, event.type, event.data.object);
       }
+      // Every other event type is accepted (200, no retry storm) and
+      // otherwise ignored — nothing else in the app reads Stripe events yet.
 
       reply.code(200);
       return '';
@@ -131,5 +134,37 @@ async function handleCheckoutSessionCompleted(
     createGoal: async () => {
       throw new Error('createGoal should not fire on the checkout_completed path');
     },
+  });
+}
+
+// 11 breakdown §E step 15 (04 §8.4): keeps Subscription.status current for
+// past_due/canceled outside the checkout flow — e.g. a card declines on
+// renewal, or the customer cancels from Stripe's own billing portal. Same
+// idempotency treatment as checkout.session.completed (§D step 14): the
+// status write and the processed-event marker commit in one transaction.
+async function handleSubscriptionStatusEvent(
+  eventId: string,
+  eventType: 'customer.subscription.updated' | 'customer.subscription.deleted',
+  subscription: Stripe.Subscription,
+): Promise<void> {
+  // .deleted is Stripe's unambiguous "this subscription is gone" signal —
+  // canceled outright, regardless of what subscription.status itself says
+  // on the deleted object. .updated defers to mapStripeSubscriptionStatus,
+  // the same mapping the reconciliation job uses (11 breakdown §E step 16),
+  // so a webhook and a reconciliation run can never disagree on what a given
+  // Stripe status means locally.
+  const status =
+    eventType === 'customer.subscription.deleted' ? 'canceled' : mapStripeSubscriptionStatus(subscription.status);
+
+  // No confident local mapping (e.g. 'incomplete', 'paused') — still marked
+  // processed, since retrying wouldn't change that; nothing to write.
+  if (!status) {
+    await markStripeEventProcessed(eventId);
+    return;
+  }
+
+  await withTransaction(async (client) => {
+    await syncSubscriptionStatusFromStripe(subscription.id, status, client);
+    await markStripeEventProcessed(eventId, client);
   });
 }
