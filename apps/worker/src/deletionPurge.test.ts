@@ -1,4 +1,11 @@
-import { createMealLog, createUser, getPool, getUserById, updateUserState } from '@tally/db-consumer';
+import {
+  createMealLog,
+  createUser,
+  getPool,
+  getUserById,
+  uniqueTestPhone,
+  updateUserState,
+} from '@tally/db-consumer';
 import type { ObjectStore } from '@tally/object-store';
 import type { MealCandidate } from '@tally/shared-types';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -33,7 +40,7 @@ async function setPhotoUrl(mealLogId: string, photoUrl: string): Promise<void> {
 
 describe('runDeletionPurgeTick (12 §B step 7-8, against a real Postgres)', () => {
   it('purges a user whose grace period has elapsed: meal logs and photos gone, PII scrubbed', async () => {
-    const phone = `+1${Date.now()}1`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     const log = await createMealLog(user.id, fakeCandidate(), 'photo', '2026-01-01');
     await setPhotoUrl(log.id, 'meal-photos/purge-me');
@@ -55,7 +62,7 @@ describe('runDeletionPurgeTick (12 §B step 7-8, against a real Postgres)', () =
   });
 
   it('leaves a user under the 30-day grace period untouched', async () => {
-    const phone = `+1${Date.now()}2`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await createMealLog(user.id, fakeCandidate(), 'photo', '2026-01-01');
     await markDeleted(user.id, new Date(Date.now() - 60_000)); // just now, nowhere near 30 days
@@ -71,7 +78,7 @@ describe('runDeletionPurgeTick (12 §B step 7-8, against a real Postgres)', () =
   });
 
   it('ignores a user who has not requested deletion at all', async () => {
-    const phone = `+1${Date.now()}3`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await updateUserState(user.id, 'idle');
     const objectStore = fakeObjectStore();
@@ -84,12 +91,12 @@ describe('runDeletionPurgeTick (12 §B step 7-8, against a real Postgres)', () =
   });
 
   it('one user failing does not stop the rest of the sweep from being purged', async () => {
-    const failingUser = await createUser(`+1${Date.now()}4`);
+    const failingUser = await createUser(uniqueTestPhone());
     const failingLog = await createMealLog(failingUser.id, fakeCandidate(), 'photo', '2026-01-01');
     await setPhotoUrl(failingLog.id, 'meal-photos/will-fail');
     await markDeleted(failingUser.id, new Date(Date.now() - GRACE_PERIOD_MS - 60_000));
 
-    const okUser = await createUser(`+1${Date.now()}5`);
+    const okUser = await createUser(uniqueTestPhone());
     await createMealLog(okUser.id, fakeCandidate(), 'photo', '2026-01-01');
     await markDeleted(okUser.id, new Date(Date.now() - GRACE_PERIOD_MS - 60_000));
 

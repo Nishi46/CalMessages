@@ -1,5 +1,12 @@
 import { createHmac } from 'node:crypto';
-import { getActiveUsersForScheduling, getPool, getUserByPhone, setUserOptOut, updateUserState } from '@tally/db-consumer';
+import {
+  getActiveUsersForScheduling,
+  getPool,
+  getUserByPhone,
+  setUserOptOut,
+  uniqueTestPhone,
+  updateUserState,
+} from '@tally/db-consumer';
 import { sendMessage } from '@tally/messaging';
 import type { ObjectStore } from '@tally/object-store';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -273,7 +280,7 @@ describe('POST /webhooks/twilio/inbound', () => {
 
 describe('POST /webhooks/twilio/inbound — against a real Postgres (breakdown step 20)', () => {
   it('creates a user row on first contact and reuses the same row on the next message', async () => {
-    const phone = `+1${Date.now()}`;
+    const phone = uniqueTestPhone();
     const params = { From: phone, Body: 'eggs and toast' };
     const url = `${PUBLIC_BASE_URL}${PATH}`;
     const signature = computeTwilioSignature(AUTH_TOKEN, url, params);
@@ -316,7 +323,7 @@ describe('POST /webhooks/twilio/inbound — against a real Postgres (breakdown s
   // the user while opted out — the whole point of writing opt_out_at, not
   // just that the column gets set.
   it('STOP then START round-trips opt_out_at, and both sendMessage() and the scheduler respect it while set', async () => {
-    const phone = `+1${Date.now()}stop`;
+    const phone = uniqueTestPhone();
     const url = `${PUBLIC_BASE_URL}${PATH}`;
     const sendClient = { send: vi.fn().mockResolvedValue({ sid: 'SM_fake' }) };
     const app = buildApp(

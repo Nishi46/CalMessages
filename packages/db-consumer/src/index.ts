@@ -5,4 +5,5 @@ export * from './goals.js';
 export * from './mealLogs.js';
 export * from './subscriptions.js';
 export * from './stripeEvents.js';
+export * from './testSupport.js';
 

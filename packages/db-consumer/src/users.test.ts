@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { getPool } from './pool.js';
+import { uniqueTestPhone } from './testSupport.js';
 import {
   createUser,
   getActiveUsersForScheduling,
@@ -10,7 +11,7 @@ import {
 
 describe('db-consumer users (smoke test against a real Postgres, per breakdown Sprint 1.A step 8)', () => {
   it('creates a user and reads it back by phone', async () => {
-    const phone = `+1${Date.now()}`;
+    const phone = uniqueTestPhone();
 
     const created = await createUser(phone);
     expect(created.phoneE164).toBe(phone);
@@ -27,7 +28,7 @@ describe('db-consumer users (smoke test against a real Postgres, per breakdown S
   });
 
   it('updates conversation state and context', async () => {
-    const phone = `+1${Date.now()}1`;
+    const phone = uniqueTestPhone();
     const created = await createUser(phone);
 
     const updated = await updateUserState(created.id, 'onboarding_q1', { heldAnswer: 'lose' });
@@ -39,7 +40,7 @@ describe('db-consumer users (smoke test against a real Postgres, per breakdown S
   // covers that — its update has no fifth arg) unless a caller explicitly
   // passes a Date or null.
   it('leaves paused_at untouched when the columns param is omitted', async () => {
-    const phone = `+1${Date.now()}1b`;
+    const phone = uniqueTestPhone();
     const created = await createUser(phone);
     await updateUserState(created.id, 'idle', null, undefined, { pausedAt: new Date() });
 
@@ -48,7 +49,7 @@ describe('db-consumer users (smoke test against a real Postgres, per breakdown S
   });
 
   it('stamps paused_at when a Date is passed, and clears it when null is passed', async () => {
-    const phone = `+1${Date.now()}1c`;
+    const phone = uniqueTestPhone();
     const created = await createUser(phone);
 
     const paused = await updateUserState(created.id, 'paused', null, undefined, { pausedAt: new Date() });
@@ -61,7 +62,7 @@ describe('db-consumer users (smoke test against a real Postgres, per breakdown S
   // 12 §B step 7: same shape as paused_at above, for the account-deletion
   // column the purge sweep reads from.
   it('stamps deleted_requested_at when a Date is passed, and clears it when null is passed', async () => {
-    const phone = `+1${Date.now()}1d`;
+    const phone = uniqueTestPhone();
     const created = await createUser(phone);
 
     const deleted = await updateUserState(created.id, 'deleted', null, undefined, {
@@ -78,7 +79,7 @@ describe('db-consumer users (smoke test against a real Postgres, per breakdown S
   // 12 §C step 10: STOP/START write opt_out_at directly, bypassing
   // conversation_state/context entirely — distinct from updateUserState.
   it('setUserOptOut stamps opt_out_at and clears it symmetrically, without touching conversation_state', async () => {
-    const phone = `+1${Date.now()}1e`;
+    const phone = uniqueTestPhone();
     const created = await createUser(phone);
     await updateUserState(created.id, 'idle');
 
@@ -94,7 +95,7 @@ describe('db-consumer users (smoke test against a real Postgres, per breakdown S
 
 describe('getActiveUsersForScheduling (09 breakdown §C step 7)', () => {
   it('includes an idle user with no opt-out or pause', async () => {
-    const phone = `+1${Date.now()}2`;
+    const phone = uniqueTestPhone();
     const created = await createUser(phone);
     await updateUserState(created.id, 'idle');
 
@@ -103,7 +104,7 @@ describe('getActiveUsersForScheduling (09 breakdown §C step 7)', () => {
   });
 
   it('excludes a user not in the idle state', async () => {
-    const phone = `+1${Date.now()}3`;
+    const phone = uniqueTestPhone();
     const created = await createUser(phone);
     await updateUserState(created.id, 'onboarding_q1');
 
@@ -112,7 +113,7 @@ describe('getActiveUsersForScheduling (09 breakdown §C step 7)', () => {
   });
 
   it('excludes an opted-out user even if idle', async () => {
-    const phone = `+1${Date.now()}4`;
+    const phone = uniqueTestPhone();
     const created = await createUser(phone);
     await updateUserState(created.id, 'idle');
     await getPool().query('UPDATE "user" SET opt_out_at = now() WHERE id = $1', [created.id]);
@@ -122,7 +123,7 @@ describe('getActiveUsersForScheduling (09 breakdown §C step 7)', () => {
   });
 
   it('excludes a paused user even if idle', async () => {
-    const phone = `+1${Date.now()}5`;
+    const phone = uniqueTestPhone();
     const created = await createUser(phone);
     await updateUserState(created.id, 'idle');
     await getPool().query('UPDATE "user" SET paused_at = now() WHERE id = $1', [created.id]);
@@ -135,7 +136,7 @@ describe('getActiveUsersForScheduling (09 breakdown §C step 7)', () => {
   // this confirms it holds now that paused_at is actually set through the
   // real updateUserState write path (12 §A step 4), not just direct SQL.
   it('excludes a user paused via updateUserState, and includes them again once resumed', async () => {
-    const phone = `+1${Date.now()}6`;
+    const phone = uniqueTestPhone();
     const created = await createUser(phone);
     await updateUserState(created.id, 'idle');
 

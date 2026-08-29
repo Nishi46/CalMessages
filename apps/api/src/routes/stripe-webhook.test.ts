@@ -5,6 +5,7 @@ import {
   getPool,
   getSubscriptionStatus,
   getUserByPhone,
+  uniqueTestPhone,
   upsertSubscriptionFromCheckout,
 } from '@tally/db-consumer';
 import type { TwilioSendClient } from '@tally/messaging';
@@ -136,7 +137,7 @@ describe('POST /webhooks/stripe — signature verification', () => {
 
 describe('POST /webhooks/stripe — checkout.session.completed (11 breakdown §C step 13, against a real Postgres)', () => {
   it('upserts the subscription, transitions awaiting_checkout -> idle, and sends one confirmation text', async () => {
-    const phone = `+1${Date.now()}`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'awaiting_checkout']);
     const app = buildTestApp();
@@ -176,7 +177,7 @@ describe('POST /webhooks/stripe — checkout.session.completed (11 breakdown §C
   });
 
   it('is a no-op (no confirmation text, no state change) when the user is not in awaiting_checkout', async () => {
-    const phone = `+1${Date.now()}1`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
     const app = buildTestApp();
@@ -207,7 +208,7 @@ describe('POST /webhooks/stripe — checkout.session.completed (11 breakdown §C
   });
 
   it('replaying the same event a second time does not send a second confirmation text', async () => {
-    const phone = `+1${Date.now()}2`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'awaiting_checkout']);
     const app = buildTestApp();
@@ -248,7 +249,7 @@ describe('POST /webhooks/stripe — checkout.session.completed (11 breakdown §C
   });
 
   it('records the Stripe event id in processed_stripe_event after handling it', async () => {
-    const phone = `+1${Date.now()}3`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'awaiting_checkout']);
     const app = buildTestApp();
@@ -269,7 +270,7 @@ describe('POST /webhooks/stripe — checkout.session.completed (11 breakdown §C
 
 describe('POST /webhooks/stripe — subscription lifecycle backstop (11 breakdown §E step 15, against a real Postgres)', () => {
   it('customer.subscription.updated sets status to past_due', async () => {
-    const user = await createUser(`+1${Date.now()}4`);
+    const user = await createUser(uniqueTestPhone());
     const subscriptionId = uniqueId('sub_lifecycle');
     await upsertSubscriptionFromCheckout(user.id, uniqueId('cus_lifecycle'), subscriptionId);
     const app = buildTestApp();
@@ -290,7 +291,7 @@ describe('POST /webhooks/stripe — subscription lifecycle backstop (11 breakdow
   });
 
   it('customer.subscription.updated recovering to active sets status back to active', async () => {
-    const user = await createUser(`+1${Date.now()}5`);
+    const user = await createUser(uniqueTestPhone());
     const subscriptionId = uniqueId('sub_lifecycle');
     await upsertSubscriptionFromCheckout(user.id, uniqueId('cus_lifecycle'), subscriptionId);
     await getPool().query(`UPDATE subscription SET status = 'past_due' WHERE user_id = $1`, [user.id]);
@@ -311,7 +312,7 @@ describe('POST /webhooks/stripe — subscription lifecycle backstop (11 breakdow
   });
 
   it('customer.subscription.deleted sets status to canceled regardless of the object\'s own status field', async () => {
-    const user = await createUser(`+1${Date.now()}6`);
+    const user = await createUser(uniqueTestPhone());
     const subscriptionId = uniqueId('sub_lifecycle');
     await upsertSubscriptionFromCheckout(user.id, uniqueId('cus_lifecycle'), subscriptionId);
     const app = buildTestApp();
@@ -334,7 +335,7 @@ describe('POST /webhooks/stripe — subscription lifecycle backstop (11 breakdow
   });
 
   it('stamps stripe_synced_at on the row it updates', async () => {
-    const user = await createUser(`+1${Date.now()}7`);
+    const user = await createUser(uniqueTestPhone());
     const subscriptionId = uniqueId('sub_lifecycle');
     await upsertSubscriptionFromCheckout(user.id, uniqueId('cus_lifecycle'), subscriptionId);
     await getPool().query(`UPDATE subscription SET stripe_synced_at = NULL WHERE user_id = $1`, [user.id]);
@@ -355,7 +356,7 @@ describe('POST /webhooks/stripe — subscription lifecycle backstop (11 breakdow
   });
 
   it('an unrecognized Stripe status is still marked processed, without writing a status', async () => {
-    const user = await createUser(`+1${Date.now()}8`);
+    const user = await createUser(uniqueTestPhone());
     const subscriptionId = uniqueId('sub_lifecycle');
     await upsertSubscriptionFromCheckout(user.id, uniqueId('cus_lifecycle'), subscriptionId);
     const app = buildTestApp();
@@ -380,7 +381,7 @@ describe('POST /webhooks/stripe — subscription lifecycle backstop (11 breakdow
   });
 
   it('replaying the same subscription.updated event a second time is a no-op the second time', async () => {
-    const user = await createUser(`+1${Date.now()}9`);
+    const user = await createUser(uniqueTestPhone());
     const subscriptionId = uniqueId('sub_lifecycle');
     await upsertSubscriptionFromCheckout(user.id, uniqueId('cus_lifecycle'), subscriptionId);
     const app = buildTestApp();
@@ -438,7 +439,7 @@ function noTextParser(): TextParser {
 // layer, since that's where signature verification and idempotency live.
 describe('awaiting_checkout -> idle round trip (11 breakdown §F step 20, end-to-end)', () => {
   it('hits the limit, pays, resumes logging normally with no re-onboarding — and a replayed checkout event stays a no-op', async () => {
-    const phone = `+1${Date.now()}10`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
     await createGoal(user.id, { type: 'maintain', dailyCalories: 2000, dailyProtein: 150 });

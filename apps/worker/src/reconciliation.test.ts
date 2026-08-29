@@ -1,4 +1,10 @@
-import { createUser, getPool, getSubscriptionStatus, upsertSubscriptionFromCheckout } from '@tally/db-consumer';
+import {
+  createUser,
+  getPool,
+  getSubscriptionStatus,
+  uniqueTestPhone,
+  upsertSubscriptionFromCheckout,
+} from '@tally/db-consumer';
 import type { SubscriptionStatusClient } from '@tally/billing';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { runReconciliationTick } from './reconciliation.js';
@@ -21,7 +27,7 @@ function uniqueId(prefix: string): string {
 
 describe('runReconciliationTick (11 breakdown §E step 16, against a real Postgres)', () => {
   it('syncs a subscription that has never been synced', async () => {
-    const user = await createUser(`+1${Date.now()}`);
+    const user = await createUser(uniqueTestPhone());
     const stripeSubscriptionId = uniqueId('sub_recon');
     await getPool().query(
       `INSERT INTO subscription (user_id, status, stripe_customer_id, stripe_subscription_id)
@@ -39,14 +45,14 @@ describe('runReconciliationTick (11 breakdown §E step 16, against a real Postgr
   });
 
   it('syncs a subscription last synced before staleSince, skips one synced after it', async () => {
-    const staleUser = await createUser(`+1${Date.now()}1`);
+    const staleUser = await createUser(uniqueTestPhone());
     const staleSubId = uniqueId('sub_recon');
     await upsertSubscriptionFromCheckout(staleUser.id, uniqueId('cus_recon'), staleSubId);
     await getPool().query(`UPDATE subscription SET stripe_synced_at = now() - interval '2 days' WHERE user_id = $1`, [
       staleUser.id,
     ]);
 
-    const freshUser = await createUser(`+1${Date.now()}2`);
+    const freshUser = await createUser(uniqueTestPhone());
     const freshSubId = uniqueId('sub_recon');
     await upsertSubscriptionFromCheckout(freshUser.id, uniqueId('cus_recon'), freshSubId);
 
@@ -64,7 +70,7 @@ describe('runReconciliationTick (11 breakdown §E step 16, against a real Postgr
   });
 
   it('ignores a free-tier row with no stripe_subscription_id', async () => {
-    const user = await createUser(`+1${Date.now()}3`);
+    const user = await createUser(uniqueTestPhone());
     await getPool().query(`INSERT INTO subscription (user_id) VALUES ($1)`, [user.id]);
     const client = fakeStatusClient(vi.fn());
 
@@ -74,7 +80,7 @@ describe('runReconciliationTick (11 breakdown §E step 16, against a real Postgr
   });
 
   it('leaves stripe_synced_at untouched when Stripe reports a status with no confident local mapping', async () => {
-    const user = await createUser(`+1${Date.now()}4`);
+    const user = await createUser(uniqueTestPhone());
     await getPool().query(
       `INSERT INTO subscription (user_id, status, stripe_customer_id, stripe_subscription_id)
        VALUES ($1, 'active', $2, $3)`,
@@ -90,14 +96,14 @@ describe('runReconciliationTick (11 breakdown §E step 16, against a real Postgr
   });
 
   it('one account failing does not stop the rest of the sweep from being reconciled', async () => {
-    const failingUser = await createUser(`+1${Date.now()}5`);
+    const failingUser = await createUser(uniqueTestPhone());
     const failingSubId = uniqueId('sub_recon');
     await getPool().query(
       `INSERT INTO subscription (user_id, status, stripe_customer_id, stripe_subscription_id)
        VALUES ($1, 'active', $2, $3)`,
       [failingUser.id, uniqueId('cus_recon'), failingSubId],
     );
-    const okUser = await createUser(`+1${Date.now()}6`);
+    const okUser = await createUser(uniqueTestPhone());
     await getPool().query(
       `INSERT INTO subscription (user_id, status, stripe_customer_id, stripe_subscription_id)
        VALUES ($1, 'active', $2, $3)`,

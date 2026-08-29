@@ -1,5 +1,5 @@
 import { renderTemplate } from '@tally/conversation';
-import { createUser, getPool } from '@tally/db-consumer';
+import { createUser, getPool, uniqueTestPhone } from '@tally/db-consumer';
 import { sendMessage, type TwilioSendClient } from '@tally/messaging';
 import { computeLocalDate } from '@tally/time';
 import { QueueEvents } from 'bullmq';
@@ -29,7 +29,7 @@ function fakeTwilioClient(): TwilioSendClient {
 
 describe('double-fire race (09 breakdown §F step 22)', () => {
   it('job-id dedup: two overlapping evaluation cycles for the same user/day result in exactly one send', async () => {
-    const user = await createUser(`+1${Date.now()}`);
+    const user = await createUser(uniqueTestPhone());
     const now = new Date('2026-08-28T00:15:00Z'); // 2026-08-27T20:15 America/New_York — inside the nudge window
 
     const connection = createRedisConnection(redisUrl);
@@ -80,7 +80,7 @@ describe('double-fire race (09 breakdown §F step 22)', () => {
   });
 
   it('authoritative check: two distinct jobs targeting the same user/day (dedup bypassed) still only send once', async () => {
-    const user = await createUser(`+1${Date.now()}1`);
+    const user = await createUser(uniqueTestPhone());
     // The processor's authoritative check buckets by the real send time
     // (sendMessage -> createMessageEvent uses now()), so this has to match
     // today's actual local date, not a fixed simulated instant.

@@ -9,6 +9,7 @@ import {
   getSubscriptionStatus,
   getUserByPhone,
   incrementFreeAnalysesUsed,
+  uniqueTestPhone,
   withTransaction,
 } from '@tally/db-consumer';
 import type { TwilioSendClient } from '@tally/messaging';
@@ -74,7 +75,7 @@ async function waitUntil(condition: () => boolean, timeoutMs = 2000): Promise<vo
 
 describe('createInboundMessageHandler (07 §D, against a real Postgres)', () => {
   it('walks a fresh user through onboarding to idle, sending four replies and creating a goal', async () => {
-    const phone = `+1${Date.now()}`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     const sendClient = fakeSendClient();
     const handleInboundMessage = createInboundMessageHandler({
@@ -125,7 +126,7 @@ describe('createInboundMessageHandler (07 §D, against a real Postgres)', () => 
   });
 
   it('is a no-op for an undefined {state, trigger} pair', async () => {
-    const phone = `+1${Date.now()}1`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [
       user.id,
@@ -153,7 +154,7 @@ describe('createInboundMessageHandler (07 §D, against a real Postgres)', () => 
 
 describe('createInboundMessageHandler — meal_content fast path (09 §D)', () => {
   it('high confidence: writes the meal log, stays idle, and replies with macros + daily total', async () => {
-    const phone = `+1${Date.now()}2`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
     await createGoal(user.id, { type: 'lose', dailyCalories: 1650, dailyProtein: 120 });
@@ -182,7 +183,7 @@ describe('createInboundMessageHandler — meal_content fast path (09 §D)', () =
   });
 
   it('breaks the reply out per item when the candidate has more than one item', async () => {
-    const phone = `+1${Date.now()}3`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
     const sendClient = fakeSendClient();
@@ -212,7 +213,7 @@ describe('createInboundMessageHandler — meal_content fast path (09 §D)', () =
   });
 
   it('low confidence: holds the candidate, moves to awaiting_clarification, and asks the clarifying question', async () => {
-    const phone = `+1${Date.now()}4`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
     const sendClient = fakeSendClient();
@@ -238,7 +239,7 @@ describe('createInboundMessageHandler — meal_content fast path (09 §D)', () =
   });
 
   it('completes a held low-confidence candidate once the clarifying answer arrives', async () => {
-    const phone = `+1${Date.now()}5`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     const candidate = fakeCandidate({ confidence: 'low' });
     await getPool().query(
@@ -270,7 +271,7 @@ describe('createInboundMessageHandler — meal_content fast path (09 §D)', () =
   });
 
   it('non-food: sends a terminal reply, stays idle, and writes no log', async () => {
-    const phone = `+1${Date.now()}6`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
     const sendClient = fakeSendClient();
@@ -294,7 +295,7 @@ describe('createInboundMessageHandler — meal_content fast path (09 §D)', () =
   });
 
   it('unassessable: sends the retake/describe reply, distinct from the non-food copy', async () => {
-    const phone = `+1${Date.now()}7`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
     const sendClient = fakeSendClient();
@@ -313,7 +314,7 @@ describe('createInboundMessageHandler — meal_content fast path (09 §D)', () =
   });
 
   it('dispatches to textParser (not visionProvider) when there is no photoKey', async () => {
-    const phone = `+1${Date.now()}8`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
     const sendClient = fakeSendClient();
@@ -332,7 +333,7 @@ describe('createInboundMessageHandler — meal_content fast path (09 §D)', () =
   });
 
   it('prefers the photo over text when both are present', async () => {
-    const phone = `+1${Date.now()}9`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
     const sendClient = fakeSendClient();
@@ -356,7 +357,7 @@ describe('createInboundMessageHandler — meal_content fast path (09 §D)', () =
   });
 
   it('sends a holding reply and completes the log asynchronously when recognize() is slower than the timeout', async () => {
-    const phone = `+1${Date.now()}10`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
     const sendClient = fakeSendClient();
@@ -387,7 +388,7 @@ describe('createInboundMessageHandler — meal_content fast path (09 §D)', () =
   });
 
   it('reports a fast provider error through onAsyncError instead of throwing out of the handler', async () => {
-    const phone = `+1${Date.now()}11`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
     const sendClient = fakeSendClient();
@@ -413,7 +414,7 @@ describe('createInboundMessageHandler — meal_content fast path (09 §D)', () =
 
 describe('createInboundMessageHandler — correction/edit resolution (09 §E)', () => {
   it('corrects a single same-day match, using the total for that entry\'s own date', async () => {
-    const phone = `+1${Date.now()}12`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
     const today = computeLocalDate(new Date(), user.timezone);
@@ -456,7 +457,7 @@ describe('createInboundMessageHandler — correction/edit resolution (09 §E)', 
   });
 
   it('deletes a single match on a "delete that" with no replacement, using textParser only for correction, not delete', async () => {
-    const phone = `+1${Date.now()}13`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
     const today = computeLocalDate(new Date(), user.timezone);
@@ -482,7 +483,7 @@ describe('createInboundMessageHandler — correction/edit resolution (09 §E)', 
   });
 
   it('resolves a correction against a prior day when the text names one explicitly', async () => {
-    const phone = `+1${Date.now()}14`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
     const today = computeLocalDate(new Date(), user.timezone);
@@ -513,7 +514,7 @@ describe('createInboundMessageHandler — correction/edit resolution (09 §E)', 
   });
 
   it('holds a disambiguation context and asks which entry, when more than one match exists', async () => {
-    const phone = `+1${Date.now()}15`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
     const today = computeLocalDate(new Date(), user.timezone);
@@ -546,7 +547,7 @@ describe('createInboundMessageHandler — correction/edit resolution (09 §E)', 
   });
 
   it('replies that nothing recent was found when there is no match, without changing state', async () => {
-    const phone = `+1${Date.now()}16`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
     const sendClient = fakeSendClient();
@@ -584,7 +585,7 @@ describe('createInboundMessageHandler — free-tier metering & paywall trigger (
   }
 
   it('the log that crosses the limit is delivered in full, followed by a separate paywall message', async () => {
-    const phone = `+1${Date.now()}21`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
     await seedSubscription(user.id, 19); // default free_analyses_limit is 20 — this log crosses it
@@ -626,7 +627,7 @@ describe('createInboundMessageHandler — free-tier metering & paywall trigger (
   });
 
   it('does not fire the paywall on a log that stays under the limit', async () => {
-    const phone = `+1${Date.now()}22`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
     await seedSubscription(user.id, 18); // this log lands at 19, one short of the limit
@@ -650,7 +651,7 @@ describe('createInboundMessageHandler — free-tier metering & paywall trigger (
   });
 
   it('does not re-fire the paywall on a log logged while already over the limit', async () => {
-    const phone = `+1${Date.now()}23`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     // Already past the limit but still idle — the state a webhook race or a
     // manually-reset row could leave a user in; this log must not re-fire
@@ -687,7 +688,7 @@ describe('createInboundMessageHandler — free-tier metering & paywall trigger (
   ])(
     'starting at %i free analyses used, this log crosses the limit = %s',
     async (startingUsed, crosses, expectedUsedAfter) => {
-      const phone = `+1${Date.now()}${startingUsed}25`;
+      const phone = uniqueTestPhone();
       const user = await createUser(phone);
       await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
       await seedSubscription(user.id, startingUsed);
@@ -718,7 +719,7 @@ describe('createInboundMessageHandler — free-tier metering & paywall trigger (
   // incrementFreeAnalysesUsed's UPDATE matches zero rows and throws, strictly
   // after createMealLog has already run inside the same transaction.
   it('rolls back the meal_log insert too when the free-tier increment fails partway through the same transaction', async () => {
-    const user = await createUser(`+1${Date.now()}26`);
+    const user = await createUser(uniqueTestPhone());
     const candidate = fakeCandidate();
 
     await expect(
@@ -733,7 +734,7 @@ describe('createInboundMessageHandler — free-tier metering & paywall trigger (
   });
 
   it('commits the meal_log insert and the free-tier increment together when neither fails', async () => {
-    const user = await createUser(`+1${Date.now()}27`);
+    const user = await createUser(uniqueTestPhone());
     await getOrCreateSubscriptionForUser(user.id);
     const candidate = fakeCandidate();
 
@@ -749,7 +750,7 @@ describe('createInboundMessageHandler — free-tier metering & paywall trigger (
   });
 
   it('also fires from the awaiting_clarification completion path, not just the fast path', async () => {
-    const phone = `+1${Date.now()}24`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     const candidate = fakeCandidate({ confidence: 'low' });
     await getPool().query(
@@ -786,7 +787,7 @@ describe('createInboundMessageHandler — free-tier metering & paywall trigger (
 // scheduler (getActiveUsersForScheduling, db-consumer) — step 3/4.
 describe('createInboundMessageHandler — pause/resume (12 §A)', () => {
   it('"pause" from idle: sends the pause confirmation, moves to paused, and stamps paused_at', async () => {
-    const phone = `+1${Date.now()}28`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
     const sendClient = fakeSendClient();
@@ -808,7 +809,7 @@ describe('createInboundMessageHandler — pause/resume (12 §A)', () => {
   });
 
   it('"resume" from paused: sends the resume confirmation, moves to idle, and clears paused_at', async () => {
-    const phone = `+1${Date.now()}29`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query(
       'UPDATE "user" SET conversation_state = $2, paused_at = now() WHERE id = $1',
@@ -833,7 +834,7 @@ describe('createInboundMessageHandler — pause/resume (12 §A)', () => {
   });
 
   it('a meal photo while paused still logs, replies with macros, and leaves paused_at/state untouched', async () => {
-    const phone = `+1${Date.now()}30`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query(
       'UPDATE "user" SET conversation_state = $2, paused_at = now() WHERE id = $1',
@@ -862,7 +863,7 @@ describe('createInboundMessageHandler — pause/resume (12 §A)', () => {
   });
 
   it('a correction while paused writes the correction and stays paused', async () => {
-    const phone = `+1${Date.now()}31`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query(
       'UPDATE "user" SET conversation_state = $2, paused_at = now() WHERE id = $1',
@@ -894,7 +895,7 @@ describe('createInboundMessageHandler — pause/resume (12 §A)', () => {
   });
 
   it('"pause" while already paused is a no-op fallback, not a re-confirmation', async () => {
-    const phone = `+1${Date.now()}32`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query(
       'UPDATE "user" SET conversation_state = $2, paused_at = now() WHERE id = $1',
@@ -923,7 +924,7 @@ describe('createInboundMessageHandler — pause/resume (12 §A)', () => {
 // confirmation (step 6's "confirmed once in writing, never re-prompted").
 describe('createInboundMessageHandler — delete (12 §B)', () => {
   it('"delete my data" from idle: sends the one confirmation, moves to deleted, and stamps deleted_requested_at', async () => {
-    const phone = `+1${Date.now()}33`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
     const sendClient = fakeSendClient();
@@ -947,7 +948,7 @@ describe('createInboundMessageHandler — delete (12 §B)', () => {
   });
 
   it('works from mid-onboarding too — a delete request has to work "from any state" (04 §6.1)', async () => {
-    const phone = `+1${Date.now()}34`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [
       user.id,
@@ -972,7 +973,7 @@ describe('createInboundMessageHandler — delete (12 §B)', () => {
   });
 
   it('a second delete request once already deleted is a no-op: no second confirmation, no re-stamped timestamp', async () => {
-    const phone = `+1${Date.now()}35`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query(
       'UPDATE "user" SET conversation_state = $2, deleted_requested_at = now() WHERE id = $1',
@@ -996,7 +997,7 @@ describe('createInboundMessageHandler — delete (12 §B)', () => {
   });
 
   it('"delete that" while idle still corrects/deletes a meal log, not the whole account', async () => {
-    const phone = `+1${Date.now()}36`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
     const today = computeLocalDate(new Date(), user.timezone);
@@ -1026,7 +1027,7 @@ describe('createInboundMessageHandler — delete (12 §B)', () => {
 // between turns, not just each half in isolation.
 describe('handleInboundMessage — end-to-end scripted flows (09 §G, breakdown step 30)', () => {
   it('photo -> high-confidence log reply', async () => {
-    const phone = `+1${Date.now()}17`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
     const sendClient = fakeSendClient();
@@ -1047,7 +1048,7 @@ describe('handleInboundMessage — end-to-end scripted flows (09 §G, breakdown 
   });
 
   it('photo -> low-confidence clarifying question -> answer -> completed log', async () => {
-    const phone = `+1${Date.now()}18`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
     const sendClient = fakeSendClient();
@@ -1090,7 +1091,7 @@ describe('handleInboundMessage — end-to-end scripted flows (09 §G, breakdown 
   });
 
   it('text correction referencing "yesterday\'s lunch" -> corrected entry with the right date\'s total', async () => {
-    const phone = `+1${Date.now()}19`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
     const today = computeLocalDate(new Date(), user.timezone);
@@ -1120,7 +1121,7 @@ describe('handleInboundMessage — end-to-end scripted flows (09 §G, breakdown 
   });
 
   it('"delete that" -> soft-deleted entry, totals updated', async () => {
-    const phone = `+1${Date.now()}20`;
+    const phone = uniqueTestPhone();
     const user = await createUser(phone);
     await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
     const today = computeLocalDate(new Date(), user.timezone);

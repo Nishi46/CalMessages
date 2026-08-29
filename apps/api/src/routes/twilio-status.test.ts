@@ -3,6 +3,7 @@ import {
   createMessageEvent,
   createUser,
   getPool,
+  uniqueTestPhone,
   updateMessageEventStatusBySid,
   updateMessageEventTwilioSid,
 } from '@tally/db-consumer';
@@ -84,7 +85,7 @@ describe('POST /webhooks/twilio/status', () => {
 
 describe('POST /webhooks/twilio/status — against a real Postgres (breakdown step 28)', () => {
   it('moves a queued MessageEvent to delivered end to end', async () => {
-    const user = await createUser(`+1${Date.now()}`);
+    const user = await createUser(uniqueTestPhone());
     const event = await createMessageEvent(user.id, 'outbound', 'nudge');
     expect(event.deliveryStatus).toBe('queued');
     const withSid = await updateMessageEventTwilioSid(event.id, 'SM_real_flow');

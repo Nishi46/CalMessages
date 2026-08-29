@@ -8,6 +8,7 @@ import {
   syncSubscriptionStatusFromStripe,
   upsertSubscriptionFromCheckout,
 } from './subscriptions.js';
+import { uniqueTestPhone } from './testSupport.js';
 import { createUser } from './users.js';
 
 // stripe_subscription_id is uniquely constrained (11 breakdown ยงE) โ€” every
@@ -21,7 +22,7 @@ function uniqueId(prefix: string): string {
 
 describe('db-consumer subscriptions (against a real Postgres, per 11 breakdown ยงA)', () => {
   it('creates a subscription with the table\'s own defaults on first use', async () => {
-    const user = await createUser(`+1${Date.now()}`);
+    const user = await createUser(uniqueTestPhone());
 
     const sub = await getOrCreateSubscriptionForUser(user.id);
 
@@ -33,7 +34,7 @@ describe('db-consumer subscriptions (against a real Postgres, per 11 breakdown ย
   });
 
   it('returns the existing row on a second call instead of erroring', async () => {
-    const user = await createUser(`+1${Date.now()}1`);
+    const user = await createUser(uniqueTestPhone());
     const first = await getOrCreateSubscriptionForUser(user.id);
 
     const second = await getOrCreateSubscriptionForUser(user.id);
@@ -43,13 +44,13 @@ describe('db-consumer subscriptions (against a real Postgres, per 11 breakdown ย
   });
 
   it('getSubscriptionStatus returns null when no row exists yet', async () => {
-    const user = await createUser(`+1${Date.now()}2`);
+    const user = await createUser(uniqueTestPhone());
 
     expect(await getSubscriptionStatus(user.id)).toBeNull();
   });
 
   it('getSubscriptionStatus reflects the current row once one exists', async () => {
-    const user = await createUser(`+1${Date.now()}3`);
+    const user = await createUser(uniqueTestPhone());
     await getOrCreateSubscriptionForUser(user.id);
 
     const status = await getSubscriptionStatus(user.id);
@@ -57,7 +58,7 @@ describe('db-consumer subscriptions (against a real Postgres, per 11 breakdown ย
   });
 
   it('incrementFreeAnalysesUsed increments within a transaction', async () => {
-    const user = await createUser(`+1${Date.now()}4`);
+    const user = await createUser(uniqueTestPhone());
     await getOrCreateSubscriptionForUser(user.id);
 
     const updated = await withTransaction(async (client) => {
@@ -69,7 +70,7 @@ describe('db-consumer subscriptions (against a real Postgres, per 11 breakdown ย
   });
 
   it('upsertSubscriptionFromCheckout sets status active and stripe ids, creating a row if none exists', async () => {
-    const user = await createUser(`+1${Date.now()}5`);
+    const user = await createUser(uniqueTestPhone());
     const customerId = uniqueId('cus');
     const subscriptionId = uniqueId('sub');
 
@@ -81,7 +82,7 @@ describe('db-consumer subscriptions (against a real Postgres, per 11 breakdown ย
   });
 
   it('upsertSubscriptionFromCheckout overwrites an existing row rather than duplicating it', async () => {
-    const user = await createUser(`+1${Date.now()}6`);
+    const user = await createUser(uniqueTestPhone());
     const created = await getOrCreateSubscriptionForUser(user.id);
     const customerId = uniqueId('cus');
 
@@ -92,7 +93,7 @@ describe('db-consumer subscriptions (against a real Postgres, per 11 breakdown ย
   });
 
   it('upsertSubscriptionFromCheckout stamps stripe_synced_at', async () => {
-    const user = await createUser(`+1${Date.now()}9`);
+    const user = await createUser(uniqueTestPhone());
     const before = new Date();
 
     const sub = await upsertSubscriptionFromCheckout(user.id, uniqueId('cus'), uniqueId('sub'));
@@ -104,7 +105,7 @@ describe('db-consumer subscriptions (against a real Postgres, per 11 breakdown ย
 
 describe('syncSubscriptionStatusFromStripe (11 breakdown ยงE steps 15-16)', () => {
   it('updates status and stamps stripe_synced_at, keyed on stripe_subscription_id', async () => {
-    const user = await createUser(`+1${Date.now()}10`);
+    const user = await createUser(uniqueTestPhone());
     const subscriptionId = uniqueId('sub_sync');
     await upsertSubscriptionFromCheckout(user.id, uniqueId('cus_sync'), subscriptionId);
 
@@ -124,7 +125,7 @@ describe('syncSubscriptionStatusFromStripe (11 breakdown ยงE steps 15-16)', () =
 
 describe('getStaleSubscriptions (11 breakdown ยงE step 16)', () => {
   it('excludes a free-tier row with no stripe_subscription_id', async () => {
-    const user = await createUser(`+1${Date.now()}11`);
+    const user = await createUser(uniqueTestPhone());
     await getOrCreateSubscriptionForUser(user.id);
 
     const stale = await getStaleSubscriptions(new Date(Date.now() + 1000));
@@ -133,7 +134,7 @@ describe('getStaleSubscriptions (11 breakdown ยงE step 16)', () => {
   });
 
   it('includes a real subscription that has never been synced', async () => {
-    const user = await createUser(`+1${Date.now()}12`);
+    const user = await createUser(uniqueTestPhone());
     // Bypasses upsertSubscriptionFromCheckout (which always stamps
     // stripe_synced_at) so this row simulates one Stripe considers
     // subscribed but this app has never actually confirmed via webhook.
@@ -149,10 +150,10 @@ describe('getStaleSubscriptions (11 breakdown ยงE step 16)', () => {
   });
 
   it('excludes a subscription synced after staleSince, includes one synced before it', async () => {
-    const freshUser = await createUser(`+1${Date.now()}13`);
+    const freshUser = await createUser(uniqueTestPhone());
     await upsertSubscriptionFromCheckout(freshUser.id, uniqueId('cus_fresh'), uniqueId('sub_fresh'));
 
-    const staleUser = await createUser(`+1${Date.now()}14`);
+    const staleUser = await createUser(uniqueTestPhone());
     await upsertSubscriptionFromCheckout(staleUser.id, uniqueId('cus_stale'), uniqueId('sub_stale'));
     await getPool().query(
       `UPDATE subscription SET stripe_synced_at = now() - interval '2 days' WHERE user_id = $1`,
@@ -169,7 +170,7 @@ describe('getStaleSubscriptions (11 breakdown ยงE step 16)', () => {
 
 describe('withTransaction (11 breakdown ยงA step 3)', () => {
   it('commits all writes on success', async () => {
-    const user = await createUser(`+1${Date.now()}7`);
+    const user = await createUser(uniqueTestPhone());
 
     await withTransaction(async (client) => {
       await client.query('UPDATE "user" SET timezone = $2 WHERE id = $1', [user.id, 'America/Chicago']);
@@ -180,7 +181,7 @@ describe('withTransaction (11 breakdown ยงA step 3)', () => {
   });
 
   it('rolls back every write when fn rejects partway through', async () => {
-    const user = await createUser(`+1${Date.now()}8`);
+    const user = await createUser(uniqueTestPhone());
 
     await expect(
       withTransaction(async (client) => {

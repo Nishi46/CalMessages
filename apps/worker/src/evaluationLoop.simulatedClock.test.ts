@@ -1,4 +1,4 @@
-import { createUser, getPool, hasLoggedToday } from '@tally/db-consumer';
+import { createUser, getPool, hasLoggedToday, uniqueTestPhone } from '@tally/db-consumer';
 import { computeLocalDate, localTimeOfDay } from '@tally/time';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { evaluateUserForNudge } from './evaluationLoop.js';
@@ -11,7 +11,7 @@ import { isWithinNudgeWindow, isWithinQuietHours } from './nudgeSchedule.js';
 
 describe('midnight rollover (09 breakdown §F step 19)', () => {
   it("a log made at 11:59pm local doesn't cover a nudge evaluation two minutes later, at 12:01am local", async () => {
-    const user = await createUser(`+1${Date.now()}`);
+    const user = await createUser(uniqueTestPhone());
     const elevenFiftyNinePmLocal = new Date('2026-08-27T03:59:00Z'); // 2026-08-26T23:59 America/New_York
     const twelveOhOneAmLocal = new Date('2026-08-27T04:01:00Z'); // 2026-08-27T00:01 America/New_York, two minutes later
 
@@ -66,7 +66,7 @@ describe('frequency cap boundary (09 breakdown §F step 21)', () => {
   const NUDGE_WINDOW_INSTANT = new Date('2026-08-28T00:15:00Z'); // 2026-08-27T20:15 America/New_York
 
   async function seedUserWithNudgesSentToday(count: number) {
-    const user = await createUser(`+1${Date.now()}${Math.random()}`);
+    const user = await createUser(uniqueTestPhone());
     for (let i = 0; i < count; i++) {
       await getPool().query(
         `INSERT INTO message_event (user_id, direction, type, sent_at, delivery_status)
@@ -106,7 +106,7 @@ describe('frequency cap boundary (09 breakdown §F step 21)', () => {
 
 describe('5-day disengagement, evaluated end to end through the real DB (09 breakdown §F step 23)', () => {
   it('sends on roughly 1 in 3 eligible days once past the threshold, and never more often as days accumulate', async () => {
-    const user = await createUser(`+1${Date.now()}`);
+    const user = await createUser(uniqueTestPhone());
     // 2026-08-02T00:10:00Z is 2026-08-01T20:10 in America/New_York (EDT,
     // UTC-4) — chosen so that adding whole-day offsets below (no DST
     // transition between here and the last tick) keeps every tick's LOCAL

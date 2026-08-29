@@ -1,4 +1,4 @@
-import { createMealLog, createUser, getPool } from '@tally/db-consumer';
+import { createMealLog, createUser, getPool, uniqueTestPhone } from '@tally/db-consumer';
 import type { MealCandidate } from '@tally/shared-types';
 import { afterAll, describe, expect, it } from 'vitest';
 import { resolveCorrectionTarget } from './resolveCorrectionTarget.js';
@@ -23,7 +23,7 @@ function candidate(overrides: Partial<MealCandidate> = {}): MealCandidate {
 
 describe('resolveCorrectionTarget (09 §E, breakdown steps 21-22, against a real Postgres)', () => {
   it('resolves a single same-day match with no day reference', async () => {
-    const user = await createUser(`+1${Date.now()}`);
+    const user = await createUser(uniqueTestPhone());
     const log = await createMealLog(user.id, candidate(), 'photo', '2026-08-27');
 
     const result = await resolveCorrectionTarget(user.id, 'that was actually 2 eggs', TIMEZONE, NOW);
@@ -32,7 +32,7 @@ describe('resolveCorrectionTarget (09 §E, breakdown steps 21-22, against a real
   });
 
   it('resolves an explicit "yesterday" reference to the prior day, not today', async () => {
-    const user = await createUser(`+1${Date.now()}1`);
+    const user = await createUser(uniqueTestPhone());
     await createMealLog(user.id, candidate(), 'photo', '2026-08-27'); // today — should be ignored
     const yesterdayLog = await createMealLog(user.id, candidate(), 'photo', '2026-08-26');
 
@@ -47,7 +47,7 @@ describe('resolveCorrectionTarget (09 §E, breakdown steps 21-22, against a real
   });
 
   it('resolves an explicit weekday reference to the most recent occurrence of that day', async () => {
-    const user = await createUser(`+1${Date.now()}2`);
+    const user = await createUser(uniqueTestPhone());
     // NOW is Thursday 2026-08-27; Monday of that week is 2026-08-24.
     const mondayLog = await createMealLog(user.id, candidate(), 'photo', '2026-08-24');
 
@@ -57,7 +57,7 @@ describe('resolveCorrectionTarget (09 §E, breakdown steps 21-22, against a real
   });
 
   it('returns multiple candidate ids when more than one log matches the resolved day', async () => {
-    const user = await createUser(`+1${Date.now()}3`);
+    const user = await createUser(uniqueTestPhone());
     const first = await createMealLog(user.id, candidate(), 'photo', '2026-08-27');
     const second = await createMealLog(user.id, candidate(), 'text', '2026-08-27');
 
@@ -70,7 +70,7 @@ describe('resolveCorrectionTarget (09 §E, breakdown steps 21-22, against a real
   });
 
   it('returns none when nothing matches the resolved day', async () => {
-    const user = await createUser(`+1${Date.now()}4`);
+    const user = await createUser(uniqueTestPhone());
 
     const result = await resolveCorrectionTarget(user.id, 'that was actually 2 eggs', TIMEZONE, NOW);
 

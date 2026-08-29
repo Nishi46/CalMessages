@@ -1,4 +1,4 @@
-import { createUser, getPool } from '@tally/db-consumer';
+import { createUser, getPool, uniqueTestPhone } from '@tally/db-consumer';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { sendMessage, type TwilioSendClient } from './sendMessage.js';
 
@@ -8,7 +8,7 @@ function fakeClient(sid = 'SM_fake_sid'): TwilioSendClient {
 
 describe('sendMessage (breakdown step 28, against a real Postgres)', () => {
   it('writes a queued MessageEvent row before calling Twilio, then attaches the twilio_sid', async () => {
-    const user = await createUser(`+1${Date.now()}`);
+    const user = await createUser(uniqueTestPhone());
     const client = fakeClient('SM_123');
 
     const event = await sendMessage(client, user.id, 'hey, how was dinner?', 'nudge');
@@ -23,7 +23,7 @@ describe('sendMessage (breakdown step 28, against a real Postgres)', () => {
   });
 
   it('does not send or write anything for an opted-out user', async () => {
-    const user = await createUser(`+1${Date.now()}1`);
+    const user = await createUser(uniqueTestPhone());
     await getPool().query('UPDATE "user" SET opt_out_at = now() WHERE id = $1', [user.id]);
 
     const client = fakeClient();
@@ -42,7 +42,7 @@ describe('sendMessage (breakdown step 28, against a real Postgres)', () => {
   });
 
   it('marks the row failed and rethrows when the Twilio API call itself throws', async () => {
-    const user = await createUser(`+1${Date.now()}2`);
+    const user = await createUser(uniqueTestPhone());
     const client: TwilioSendClient = { send: vi.fn().mockRejectedValue(new Error('twilio down')) };
 
     await expect(sendMessage(client, user.id, 'hi', 'nudge')).rejects.toThrow('twilio down');
