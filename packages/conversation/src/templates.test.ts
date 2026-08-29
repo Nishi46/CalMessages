@@ -105,6 +105,18 @@ describe('correction/delete templates (09 §F, breakdown step 25)', () => {
   });
 });
 
+describe('pause/resume templates (12 §A step 1)', () => {
+  it('confirms the pause as a statement, and says logging still works', () => {
+    const rendered = renderTemplate('pause_confirmed');
+    expect(rendered).toContain('paused');
+    expect(rendered.toLowerCase()).toContain('logging still works');
+  });
+
+  it('confirms the resume with no placeholders', () => {
+    expect(renderTemplate('resume_confirmed')).toBe("Nudges are back on. Send your next meal whenever you're ready.");
+  });
+});
+
 describe('proactive_checkin (09 §E step 16)', () => {
   it('matches Build Spec §4.4\'s sample transcript exactly', () => {
     expect(renderTemplate('proactive_checkin')).toBe("How'd dinner go tonight?");

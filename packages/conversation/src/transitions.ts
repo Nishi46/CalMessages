@@ -24,7 +24,10 @@ function key(fromState: ConversationState, trigger: Trigger): string {
 // fallback transition below until its own sprint wires it in.
 //
 // idle:meal_content and idle:correction are deliberately absent here — see
-// resolveMealContentTransition and resolveCorrectionTransition below.
+// resolveMealContentTransition and resolveCorrectionTransition below. So are
+// paused:meal_content and paused:correction, for the same reason (12 §A step
+// 2) — the router calls those same two functions with fromState: 'paused'
+// instead of adding a second, duplicated set of runtime-dependent branches.
 const TRANSITIONS: Record<string, Transition> = {
   [key('new', 'first_contact')]: {
     toState: 'onboarding_q1',
@@ -69,6 +72,18 @@ const TRANSITIONS: Record<string, Transition> = {
     toState: 'idle',
     sideEffects: [{ type: 'sendReply', template: 'checkout_confirmed' }],
   },
+  // 12 §A step 1 (Build Spec §4.7): app-level pause, distinct from carrier
+  // STOP (12 §C). paused_at itself is stamped by the router alongside this
+  // transition's updateUserState call, not by a side effect — no side effect
+  // type currently expresses "also write a column" (12 §A step 4).
+  [key('idle', 'pause')]: {
+    toState: 'paused',
+    sideEffects: [{ type: 'sendReply', template: 'pause_confirmed' }],
+  },
+  [key('paused', 'resume')]: {
+    toState: 'idle',
+    sideEffects: [{ type: 'sendReply', template: 'resume_confirmed' }],
+  },
 };
 
 // Same state, no side effects. A miss must never throw (04 §14) — an
@@ -88,7 +103,17 @@ export function resolveTransition(fromState: ConversationState, trigger: Trigger
 // (calling TextParser/VisionProvider), then calls this — instead of
 // resolveTransition — to pick between the two candidate transitions below
 // before calling applySideEffects.
-export function resolveMealContentTransition(candidate: MealCandidate): Transition {
+//
+// fromState (12 §A step 2) is the "return to idle" default's paused
+// counterpart — a paused user's meal-logging turn has to land back in
+// 'paused', not 'idle', or the very next inbound message would misclassify
+// against the wrong state. Only the direct-write branch below is affected;
+// a low-confidence hold always goes to awaiting_clarification regardless of
+// where it started, same as idle.
+export function resolveMealContentTransition(
+  candidate: MealCandidate,
+  fromState: ConversationState = 'idle',
+): Transition {
   if (candidate.confidence === 'low') {
     // No vision/text producer currently populates confidenceNote (09 §F
     // step 25: "where available") — the template's own {confidenceNote}
@@ -111,7 +136,7 @@ export function resolveMealContentTransition(candidate: MealCandidate): Transiti
   }
 
   return {
-    toState: 'idle',
+    toState: fromState,
     sideEffects: [
       { type: 'writeMealLog' },
       { type: 'sendReply', template: 'meal_logged' },
@@ -137,9 +162,13 @@ export type CorrectionIntent = 'correct' | 'delete';
 // awaiting_clarification as a disambiguation hold rather than adding a
 // tenth state. The router resolves the match first, then calls this
 // instead of resolveTransition for the correction trigger.
+//
+// fromState (12 §A step 2) mirrors resolveMealContentTransition's — a
+// paused user correcting/deleting a log returns to 'paused', not 'idle'.
 export function resolveCorrectionTransition(
   match: CorrectionMatch,
   intent: CorrectionIntent = 'correct',
+  fromState: ConversationState = 'idle',
 ): Transition {
   if (match.kind === 'multiple') {
     return {
@@ -156,7 +185,7 @@ export function resolveCorrectionTransition(
 
   if (intent === 'delete') {
     return {
-      toState: 'idle',
+      toState: fromState,
       sideEffects: [
         { type: 'deleteMealLog', targetLogId: match.targetLogId },
         { type: 'sendReply', template: 'delete_confirmed' },
@@ -165,7 +194,7 @@ export function resolveCorrectionTransition(
   }
 
   return {
-    toState: 'idle',
+    toState: fromState,
     sideEffects: [
       { type: 'writeCorrection', targetLogId: match.targetLogId },
       { type: 'sendReply', template: 'correction_confirmed' },

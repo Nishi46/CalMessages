@@ -13,6 +13,10 @@
 // (from the meal-log write and the Stripe webhook, respectively), so those
 // transitions (like every other one) still flow through the one lookup
 // table rather than conversation_state being set directly from billing code.
+//
+// pause/resume (12 §A step 1) are classified from keyword match, distinct
+// from Twilio's carrier-level STOP/START (12 §C step 9) which never reaches
+// classifyTrigger as text at all.
 export type Trigger =
   | 'first_contact'
   | 'onboarding_answer'
@@ -21,4 +25,6 @@ export type Trigger =
   | 'correction'
   | 'limit_crossed'
   | 'checkout_completed'
+  | 'pause'
+  | 'resume'
   | 'unhandled';

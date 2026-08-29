@@ -17,6 +17,8 @@ describe('resolveTransition (07 §A, breakdown steps 4-5)', () => {
     ['awaiting_clarification', 'clarification_answer', 'idle', ['writeMealLog', 'sendReply']],
     ['idle', 'limit_crossed', 'awaiting_checkout', ['createCheckoutLink', 'sendReply']],
     ['awaiting_checkout', 'checkout_completed', 'idle', ['sendReply']],
+    ['idle', 'pause', 'paused', ['sendReply']],
+    ['paused', 'resume', 'idle', ['sendReply']],
   ] as const)(
     '%s + %s -> %s',
     (fromState, trigger, expectedToState, expectedEffectTypes) => {
@@ -36,6 +38,8 @@ describe('resolveTransition (07 §A, breakdown steps 4-5)', () => {
     ['new', 'unhandled'],
     ['idle', 'meal_content'],
     ['idle', 'correction'],
+    ['paused', 'pause'],
+    ['idle', 'resume'],
   ] as const)('%s + %s falls back to a same-state no-op instead of throwing', (fromState, trigger) => {
     expect(() => resolveTransition(fromState, trigger)).not.toThrow();
 
@@ -66,6 +70,8 @@ describe('resolveTransition (07 §A, breakdown steps 4-5)', () => {
       'correction',
       'limit_crossed',
       'checkout_completed',
+      'pause',
+      'resume',
       'unhandled',
     ];
 
@@ -129,6 +135,22 @@ describe('resolveMealContentTransition (09 §C, breakdown step 11)', () => {
       vars: { confidenceNote: '' },
     });
   });
+
+  it('returns to paused, not idle, on high/medium confidence when fromState is paused (12 §A step 2)', () => {
+    const transition = resolveMealContentTransition(candidate({ confidence: 'medium' }), 'paused');
+
+    expect(transition.toState).toBe('paused');
+    expect(transition.sideEffects).toEqual([
+      { type: 'writeMealLog' },
+      { type: 'sendReply', template: 'meal_logged' },
+    ]);
+  });
+
+  it('still holds for a clarifying question on low confidence when fromState is paused', () => {
+    const transition = resolveMealContentTransition(candidate({ confidence: 'low' }), 'paused');
+
+    expect(transition.toState).toBe('awaiting_clarification');
+  });
 });
 
 describe('resolveCorrectionTransition (09 §C, breakdown step 13)', () => {
@@ -181,5 +203,19 @@ describe('resolveCorrectionTransition — delete intent (09 §E, breakdown step 
       type: 'mergeContext',
       patch: { pendingKind: 'correction_target', candidateLogIds: ['log-1', 'log-2'], intent: 'delete' },
     });
+  });
+});
+
+describe('resolveCorrectionTransition — paused fromState (12 §A step 2)', () => {
+  it('returns to paused, not idle, on a single-match correction', () => {
+    const transition = resolveCorrectionTransition({ kind: 'single', targetLogId: 'log-1' }, 'correct', 'paused');
+
+    expect(transition.toState).toBe('paused');
+  });
+
+  it('returns to paused, not idle, on a single-match delete', () => {
+    const transition = resolveCorrectionTransition({ kind: 'single', targetLogId: 'log-1' }, 'delete', 'paused');
+
+    expect(transition.toState).toBe('paused');
   });
 });

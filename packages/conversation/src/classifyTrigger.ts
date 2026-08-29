@@ -1,6 +1,7 @@
 import type { ConversationState } from './state.js';
 import type { Trigger } from './trigger.js';
 import { isCorrectionText } from './correctionPattern.js';
+import { isPauseText, isResumeText } from './pausePattern.js';
 
 export interface InboundSignal {
   currentState: ConversationState;
@@ -42,9 +43,21 @@ export function classifyTrigger(signal: InboundSignal): Trigger {
     return 'clarification_answer';
   }
 
-  if (signal.currentState === 'idle') {
-    if (signal.hasText && signal.text !== undefined && isCorrectionText(signal.text)) {
-      return 'correction';
+  // idle and paused are both logging-capable (12 §A step 2: "logging still
+  // works if the user texts in" while paused) — pause/resume are only
+  // checked in the one direction each can actually fire from, ahead of the
+  // correction/meal_content checks both states otherwise share.
+  if (signal.currentState === 'idle' || signal.currentState === 'paused') {
+    if (signal.hasText && signal.text !== undefined) {
+      if (signal.currentState === 'idle' && isPauseText(signal.text)) {
+        return 'pause';
+      }
+      if (signal.currentState === 'paused' && isResumeText(signal.text)) {
+        return 'resume';
+      }
+      if (isCorrectionText(signal.text)) {
+        return 'correction';
+      }
     }
     return 'meal_content';
   }

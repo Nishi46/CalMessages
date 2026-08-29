@@ -75,6 +75,14 @@ export const TEMPLATES = {
   // re-onboarding, no re-confirmation [beyond this one text]." Deliberately
   // says nothing else — the very next meal photo should just work.
   checkout_confirmed: "You're all set — logging is back on. Send your next meal whenever you're ready.",
+
+  // --- Pause/resume (Sprint 7 §A step 1, Build Spec §4.7) ---
+  // A statement, not a question — same posture Build Spec §4.7 requires for
+  // the delete confirmation. Logging still works while paused (step 2), so
+  // this says so rather than implying the thread goes silent.
+  pause_confirmed:
+    "Nudges are paused — I won't check in until you text \"resume.\" Logging still works anytime you text in.",
+  resume_confirmed: "Nudges are back on. Send your next meal whenever you're ready.",
 } as const satisfies Record<string, string>;
 
 export type TemplateId = keyof typeof TEMPLATES;

@@ -77,15 +77,33 @@ export async function getActiveUsersForScheduling(): Promise<User[]> {
 // unaffected — 11 breakdown §D step 14 passes an open transaction client
 // here instead, so this write and the processed_stripe_event marker commit
 // atomically with the rest of a webhook's DB-side effects.
+//
+// pausedAt (12 §A step 4) is left undefined by every pre-existing call
+// site, which leaves the column untouched — only the router's pause/resume
+// transitions pass a real Date (pause) or null (resume), so this one column
+// write rides along with the same state/context UPDATE rather than a second
+// round-trip.
 export async function updateUserState(
   userId: string,
   conversationState: string,
   conversationContext: unknown = null,
   client: DbClient = getPool(),
+  pausedAt?: Date | null,
 ): Promise<User> {
-  const { rows } = await client.query<UserRow>(
-    `UPDATE "user" SET conversation_state = $2, conversation_context = $3 WHERE id = $1 RETURNING *`,
-    [userId, conversationState, conversationContext === null ? null : JSON.stringify(conversationContext)],
-  );
+  const { rows } =
+    pausedAt === undefined
+      ? await client.query<UserRow>(
+          `UPDATE "user" SET conversation_state = $2, conversation_context = $3 WHERE id = $1 RETURNING *`,
+          [userId, conversationState, conversationContext === null ? null : JSON.stringify(conversationContext)],
+        )
+      : await client.query<UserRow>(
+          `UPDATE "user" SET conversation_state = $2, conversation_context = $3, paused_at = $4 WHERE id = $1 RETURNING *`,
+          [
+            userId,
+            conversationState,
+            conversationContext === null ? null : JSON.stringify(conversationContext),
+            pausedAt,
+          ],
+        );
   return rowToUser(rows[0]);
 }

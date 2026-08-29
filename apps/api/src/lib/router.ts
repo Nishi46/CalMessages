@@ -187,7 +187,11 @@ export function createInboundMessageHandler(deps: RouterDeps) {
     if (crossedFreeTierLimit) {
       await triggerPaywall(payload.userId, deps);
     } else {
-      await updateUserState(payload.userId, transition.toState, mergedContext);
+      // 12 §A step 4: paused_at rides along with this same UPDATE only for
+      // the two transitions that actually change it — every other trigger
+      // passes undefined, leaving the column untouched.
+      const pausedAt = trigger === 'pause' ? new Date() : trigger === 'resume' ? null : undefined;
+      await updateUserState(payload.userId, transition.toState, mergedContext, undefined, pausedAt);
     }
   };
 }
@@ -364,7 +368,11 @@ async function finishMealContent(
     return;
   }
 
-  const transition = resolveMealContentTransition(candidate);
+  // 12 §A step 2: a paused user's meal-logging turn has to land back in
+  // 'paused', not 'idle' — meal_content only ever classifies from those two
+  // states (classifyTrigger.ts), so this is exhaustive.
+  const fromState: ConversationState = payload.currentState === 'paused' ? 'paused' : 'idle';
+  const transition = resolveMealContentTransition(candidate, fromState);
   let heldContext: PendingContext | undefined;
   let crossedFreeTierLimit = false;
 
@@ -421,7 +429,9 @@ async function handleCorrection(payload: RouterHandoffPayload, deps: RouterDeps)
   // Checked before falling through to a value-replacement correction
   // (09 §E step 23) — "delete that" carries no replacement value to parse.
   const intent: CorrectionIntent = isDeleteText(text) ? 'delete' : 'correct';
-  const transition = resolveCorrectionTransition(resolution, intent);
+  // 12 §A step 2: same paused/idle round-trip as finishMealContent above.
+  const fromState: ConversationState = payload.currentState === 'paused' ? 'paused' : 'idle';
+  const transition = resolveCorrectionTransition(resolution, intent, fromState);
   let heldContextPatch: Record<string, unknown> | undefined;
 
   await applySideEffects(transition.sideEffects, {

@@ -781,6 +781,143 @@ describe('createInboundMessageHandler — free-tier metering & paywall trigger (
   });
 });
 
+// 12 §A: pause/resume. Logging still works while paused (step 2), and
+// paused_at (not just conversation_state) is what actually suppresses the
+// scheduler (getActiveUsersForScheduling, db-consumer) — step 3/4.
+describe('createInboundMessageHandler — pause/resume (12 §A)', () => {
+  it('"pause" from idle: sends the pause confirmation, moves to paused, and stamps paused_at', async () => {
+    const phone = `+1${Date.now()}28`;
+    const user = await createUser(phone);
+    await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
+    const sendClient = fakeSendClient();
+    const handleInboundMessage = createInboundMessageHandler({
+      sendClient,
+      visionProvider: noVisionProvider(),
+      textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
+    });
+
+    await handleInboundMessage({ userId: user.id, text: 'pause', currentState: 'idle' });
+
+    const [, body] = sendClient.send.mock.calls[0] as [string, string];
+    expect(body).toContain('paused');
+
+    const current = await getUserByPhone(phone);
+    expect(current?.conversationState).toBe('paused');
+    expect(current?.pausedAt).not.toBeNull();
+  });
+
+  it('"resume" from paused: sends the resume confirmation, moves to idle, and clears paused_at', async () => {
+    const phone = `+1${Date.now()}29`;
+    const user = await createUser(phone);
+    await getPool().query(
+      'UPDATE "user" SET conversation_state = $2, paused_at = now() WHERE id = $1',
+      [user.id, 'paused'],
+    );
+    const sendClient = fakeSendClient();
+    const handleInboundMessage = createInboundMessageHandler({
+      sendClient,
+      visionProvider: noVisionProvider(),
+      textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
+    });
+
+    await handleInboundMessage({ userId: user.id, text: 'resume', currentState: 'paused' });
+
+    const [, body] = sendClient.send.mock.calls[0] as [string, string];
+    expect(body).toContain('back on');
+
+    const current = await getUserByPhone(phone);
+    expect(current?.conversationState).toBe('idle');
+    expect(current?.pausedAt).toBeNull();
+  });
+
+  it('a meal photo while paused still logs, replies with macros, and leaves paused_at/state untouched', async () => {
+    const phone = `+1${Date.now()}30`;
+    const user = await createUser(phone);
+    await getPool().query(
+      'UPDATE "user" SET conversation_state = $2, paused_at = now() WHERE id = $1',
+      [user.id, 'paused'],
+    );
+    const sendClient = fakeSendClient();
+    const candidate = fakeCandidate({ confidence: 'high' });
+    const handleInboundMessage = createInboundMessageHandler({
+      sendClient,
+      visionProvider: fakeVisionProvider(vi.fn().mockResolvedValue(candidate)),
+      textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
+    });
+
+    await handleInboundMessage({ userId: user.id, photoKey: 'meal-photos/paused-1', currentState: 'paused' });
+
+    const [, body] = sendClient.send.mock.calls[0] as [string, string];
+    expect(body).toContain('Logged: 210 cal');
+
+    const current = await getUserByPhone(phone);
+    expect(current?.conversationState).toBe('paused');
+    expect(current?.pausedAt).not.toBeNull();
+
+    const { rows } = await getPool().query('SELECT * FROM meal_log WHERE user_id = $1', [user.id]);
+    expect(rows).toHaveLength(1);
+  });
+
+  it('a correction while paused writes the correction and stays paused', async () => {
+    const phone = `+1${Date.now()}31`;
+    const user = await createUser(phone);
+    await getPool().query(
+      'UPDATE "user" SET conversation_state = $2, paused_at = now() WHERE id = $1',
+      [user.id, 'paused'],
+    );
+    const today = computeLocalDate(new Date(), user.timezone);
+    await createMealLog(user.id, fakeCandidate({ calories: 300 }), 'photo', today);
+    const sendClient = fakeSendClient();
+    const replacement = fakeCandidate({ calories: 210 });
+    const handleInboundMessage = createInboundMessageHandler({
+      sendClient,
+      visionProvider: noVisionProvider(),
+      textParser: fakeTextParser(vi.fn().mockResolvedValue(replacement)),
+      createCheckoutLink: noCreateCheckoutLink(),
+    });
+
+    await handleInboundMessage({
+      userId: user.id,
+      text: 'that was actually 2 eggs not 3',
+      currentState: 'paused',
+    });
+
+    const [, body] = sendClient.send.mock.calls[0] as [string, string];
+    expect(body).toContain('Updated — that entry is now 210 cal');
+
+    const current = await getUserByPhone(phone);
+    expect(current?.conversationState).toBe('paused');
+    expect(current?.pausedAt).not.toBeNull();
+  });
+
+  it('"pause" while already paused is a no-op fallback, not a re-confirmation', async () => {
+    const phone = `+1${Date.now()}32`;
+    const user = await createUser(phone);
+    await getPool().query(
+      'UPDATE "user" SET conversation_state = $2, paused_at = now() WHERE id = $1',
+      [user.id, 'paused'],
+    );
+    const sendClient = fakeSendClient();
+    const candidate = fakeCandidate();
+    const handleInboundMessage = createInboundMessageHandler({
+      sendClient,
+      visionProvider: noVisionProvider(),
+      textParser: fakeTextParser(vi.fn().mockResolvedValue(candidate)),
+      createCheckoutLink: noCreateCheckoutLink(),
+    });
+
+    // classifyTrigger only checks pause language from 'idle' — from
+    // 'paused' this is just another logging turn, same as any other text.
+    await handleInboundMessage({ userId: user.id, text: 'pause', currentState: 'paused' });
+
+    const [, body] = sendClient.send.mock.calls[0] as [string, string];
+    expect(body).toContain('Logged:');
+  });
+});
+
 // 09 §G step 30: the whole sprint's fast path, told as continuous
 // user-facing scripts rather than isolated assertions — each turn re-reads
 // the user's persisted state the way the real webhook route does, so a

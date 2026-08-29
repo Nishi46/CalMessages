@@ -24,8 +24,8 @@ describe('classifyTrigger (07 §B, breakdown step 6)', () => {
     },
   );
 
-  it('classifies inbound in states with no Sprint 4 wiring as unhandled', () => {
-    const states: ConversationState[] = ['awaiting_checkout', 'paused', 'care_pause', 'deleted'];
+  it('classifies inbound in states with no Sprint 4/7 wiring as unhandled', () => {
+    const states: ConversationState[] = ['awaiting_checkout', 'care_pause', 'deleted'];
 
     for (const currentState of states) {
       expect(classifyTrigger({ currentState, hasText: true, hasPhoto: false })).toBe('unhandled');
@@ -59,6 +59,51 @@ describe('classifyTrigger (07 §B, breakdown step 6)', () => {
   it('defaults ambiguous idle-state text to meal_content rather than correction', () => {
     expect(
       classifyTrigger({ currentState: 'idle', hasText: true, hasPhoto: false, text: 'grilled salmon' }),
+    ).toBe('meal_content');
+  });
+
+  it('classifies idle-state pause language as pause', () => {
+    expect(
+      classifyTrigger({ currentState: 'idle', hasText: true, hasPhoto: false, text: 'pause' }),
+    ).toBe('pause');
+    expect(
+      classifyTrigger({ currentState: 'idle', hasText: true, hasPhoto: false, text: 'please stop nudges' }),
+    ).toBe('pause');
+  });
+
+  it('does not classify a bare "stop" as pause — that is the carrier-level keyword (12 §C)', () => {
+    expect(
+      classifyTrigger({ currentState: 'idle', hasText: true, hasPhoto: false, text: 'stop' }),
+    ).toBe('meal_content');
+  });
+
+  it('classifies a photo or non-resume text while paused as meal_content, same as idle (12 §A step 2)', () => {
+    expect(classifyTrigger({ currentState: 'paused', hasText: false, hasPhoto: true })).toBe(
+      'meal_content',
+    );
+    expect(
+      classifyTrigger({ currentState: 'paused', hasText: true, hasPhoto: false, text: 'chicken and rice' }),
+    ).toBe('meal_content');
+  });
+
+  it('classifies paused-state text matching the correction pattern as correction, same as idle', () => {
+    expect(
+      classifyTrigger({ currentState: 'paused', hasText: true, hasPhoto: false, text: 'undo that' }),
+    ).toBe('correction');
+  });
+
+  it('classifies paused-state resume language as resume', () => {
+    expect(
+      classifyTrigger({ currentState: 'paused', hasText: true, hasPhoto: false, text: 'resume' }),
+    ).toBe('resume');
+  });
+
+  it('does not classify "pause" while already paused, or "resume" while idle', () => {
+    expect(
+      classifyTrigger({ currentState: 'paused', hasText: true, hasPhoto: false, text: 'pause' }),
+    ).toBe('meal_content');
+    expect(
+      classifyTrigger({ currentState: 'idle', hasText: true, hasPhoto: false, text: 'resume' }),
     ).toBe('meal_content');
   });
 
