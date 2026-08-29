@@ -15,6 +15,10 @@ export interface TwilioInboundDeps {
   fetchMedia: (mediaUrl: string) => Promise<FetchedMedia>;
   objectStore: ObjectStore;
   handleInboundMessage: (payload: RouterHandoffPayload) => Promise<void>;
+  // 12 §C step 10: STOP sets opt_out_at, START clears it — "symmetrically"
+  // (04 §4.3). Typed loosely (return value unused) same posture as
+  // twilio-status.ts's updateMessageEventStatus dep.
+  setUserOptOut: (userId: string, optOutAt: Date | null) => Promise<unknown>;
 }
 
 interface TwilioInboundBody {
@@ -22,6 +26,17 @@ interface TwilioInboundBody {
   Body?: string;
   NumMedia?: string;
   MediaUrl0?: string;
+  // 12 §C step 9: present only when Advanced Opt-Out is enabled on the
+  // Messaging Service, and only on the request that matched one of its
+  // keywords — https://www.twilio.com/docs/messaging/tutorials/advanced-opt-out
+  // confirms this arrives as a field on the *same* inbound-message webhook
+  // request (this route), not a separate opt-out-specific URL, and that
+  // Twilio has already replied to the sender with its own confirmation by
+  // the time this request is even sent. Twilio also auto-blocks subsequent
+  // sends to a STOP'd number at the API level (error 21610) regardless of
+  // what this app does — opt_out_at is written purely so sendMessage() and
+  // the scheduler can skip a send that would otherwise just fail (step 11).
+  OptOutType?: 'STOP' | 'START' | 'HELP';
   [key: string]: string | undefined;
 }
 
@@ -51,6 +66,25 @@ export function registerTwilioInboundRoute(app: FastifyInstance, deps: TwilioInb
       }
 
       const user = await deps.resolveOrCreateUser(from);
+
+      // 12 §C step 10/11: handled here, not routed through
+      // handleInboundMessage/classifyTrigger at all — Twilio's Advanced
+      // Opt-Out already matched the keyword and replied before this request
+      // was even sent (step 9), so there's no conversation-state decision
+      // left for the app to make, only the opt_out_at column to keep in
+      // sync. HELP needs no column write (Twilio's own reply already
+      // answered it) but still short-circuits here so it's never
+      // misclassified as real message content downstream.
+      if (body.OptOutType === 'STOP') {
+        await deps.setUserOptOut(user.id, new Date());
+      }
+      if (body.OptOutType === 'START') {
+        await deps.setUserOptOut(user.id, null);
+      }
+      if (body.OptOutType) {
+        reply.header('Content-Type', 'text/xml');
+        return EMPTY_TWIML;
+      }
 
       let photoKey: string | undefined;
       const numMedia = Number(body.NumMedia ?? '0');

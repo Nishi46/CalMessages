@@ -1,5 +1,5 @@
 import { createCheckoutLink as createStripeCheckoutLink, createStripeCheckoutClient } from '@tally/billing';
-import { updateMessageEventStatusBySid } from '@tally/db-consumer';
+import { setUserOptOut, updateMessageEventStatusBySid } from '@tally/db-consumer';
 import { createTwilioSendClient } from '@tally/messaging';
 import { createTextModelClient, createTextParser, createVisionModelClient, createVisionProvider } from '@tally/vision';
 import { createS3ObjectStore } from '@tally/object-store';
@@ -76,6 +76,7 @@ const app = buildApp({
   fetchMedia: (mediaUrl) => fetchTwilioMedia(mediaUrl, accountSid, authToken),
   objectStore,
   handleInboundMessage,
+  setUserOptOut,
   updateMessageEventStatus: updateMessageEventStatusBySid,
   stripeSecretKey,
   stripeWebhookSecret,

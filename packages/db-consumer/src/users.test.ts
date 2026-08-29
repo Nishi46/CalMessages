@@ -1,6 +1,12 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { getPool } from './pool.js';
-import { createUser, getActiveUsersForScheduling, getUserByPhone, updateUserState } from './users.js';
+import {
+  createUser,
+  getActiveUsersForScheduling,
+  getUserByPhone,
+  setUserOptOut,
+  updateUserState,
+} from './users.js';
 
 describe('db-consumer users (smoke test against a real Postgres, per breakdown Sprint 1.A step 8)', () => {
   it('creates a user and reads it back by phone', async () => {
@@ -67,6 +73,22 @@ describe('db-consumer users (smoke test against a real Postgres, per breakdown S
       deletedRequestedAt: null,
     });
     expect(scrubbed.deletedRequestedAt).toBeNull();
+  });
+
+  // 12 §C step 10: STOP/START write opt_out_at directly, bypassing
+  // conversation_state/context entirely — distinct from updateUserState.
+  it('setUserOptOut stamps opt_out_at and clears it symmetrically, without touching conversation_state', async () => {
+    const phone = `+1${Date.now()}1e`;
+    const created = await createUser(phone);
+    await updateUserState(created.id, 'idle');
+
+    const optedOut = await setUserOptOut(created.id, new Date());
+    expect(optedOut.optOutAt).not.toBeNull();
+    expect(optedOut.conversationState).toBe('idle');
+
+    const optedBackIn = await setUserOptOut(created.id, null);
+    expect(optedBackIn.optOutAt).toBeNull();
+    expect(optedBackIn.conversationState).toBe('idle');
   });
 });
 

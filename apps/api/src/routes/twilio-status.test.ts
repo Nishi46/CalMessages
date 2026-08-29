@@ -31,6 +31,7 @@ function buildTestApp(updateMessageEventStatus: (sid: string, status: string) =>
       fetchMedia: vi.fn(),
       objectStore: { putObject: vi.fn(), getObject: vi.fn(), deleteObject: vi.fn() },
       handleInboundMessage: vi.fn(),
+      setUserOptOut: vi.fn(),
       updateMessageEventStatus,
       stripeSecretKey: 'sk_test_fake',
       stripeWebhookSecret: 'whsec_fake',

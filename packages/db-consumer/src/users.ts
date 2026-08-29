@@ -76,6 +76,20 @@ export async function getActiveUsersForScheduling(): Promise<User[]> {
   return rows.map(rowToUser);
 }
 
+// 12 §C step 10: STOP/START set/clear opt_out_at directly, never through the
+// conversation state machine — unlike pause/resume/delete, Twilio's own
+// Advanced Opt-Out handling matches the keyword and replies before this app
+// even sees the request (04 §4.3: carrier-level, no application code
+// decides whether to honor it), so there's no conversation_state/context to
+// write alongside it, and this doesn't belong behind updateUserState.
+export async function setUserOptOut(userId: string, optOutAt: Date | null): Promise<User> {
+  const { rows } = await getPool().query<UserRow>(
+    `UPDATE "user" SET opt_out_at = $2 WHERE id = $1 RETURNING *`,
+    [userId, optOutAt],
+  );
+  return rowToUser(rows[0]);
+}
+
 // The per-state timestamp columns (12 §A step 4, 12 §B step 7) that ride
 // along with a state transition's UPDATE — undefined (the default) leaves a
 // column untouched, so every pre-existing call site is unaffected. Only the
