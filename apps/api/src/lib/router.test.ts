@@ -3,9 +3,13 @@ import {
   createMealLog,
   createUser,
   getDailyTotals,
+  getOrCreateSubscriptionForUser,
   getPool,
+  getRecentMealLogsForUser,
   getSubscriptionStatus,
   getUserByPhone,
+  incrementFreeAnalysesUsed,
+  withTransaction,
 } from '@tally/db-consumer';
 import type { TwilioSendClient } from '@tally/messaging';
 import type { MealCandidate } from '@tally/shared-types';
@@ -670,6 +674,78 @@ describe('createInboundMessageHandler — free-tier metering & paywall trigger (
 
     const subscription = await getSubscriptionStatus(user.id);
     expect(subscription?.freeAnalysesUsed).toBe(26);
+  });
+
+  // 11 breakdown §F step 17, stated exactly as written there: boundary
+  // tests at exactly limit-1, limit, and limit+1 free analyses used —
+  // the paywall fires only on the one log that crosses from under the
+  // limit to at/over it, never on a log that starts already at or past it.
+  it.each([
+    [19, true, 20],
+    [20, false, 21],
+    [21, false, 22],
+  ])(
+    'starting at %i free analyses used, this log crosses the limit = %s',
+    async (startingUsed, crosses, expectedUsedAfter) => {
+      const phone = `+1${Date.now()}${startingUsed}25`;
+      const user = await createUser(phone);
+      await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
+      await seedSubscription(user.id, startingUsed);
+      const sendClient = fakeSendClient();
+      const candidate = fakeCandidate({ confidence: 'high' });
+      const handleInboundMessage = createInboundMessageHandler({
+        sendClient,
+        visionProvider: fakeVisionProvider(vi.fn().mockResolvedValue(candidate)),
+        textParser: noTextParser(),
+        createCheckoutLink: crosses ? fakeCreateCheckoutLink() : noCreateCheckoutLink(),
+      });
+
+      await handleInboundMessage({ userId: user.id, photoKey: 'meal-photos/abc', currentState: 'idle' });
+
+      expect(sendClient.send).toHaveBeenCalledTimes(crosses ? 2 : 1);
+      const subscription = await getSubscriptionStatus(user.id);
+      expect(subscription?.freeAnalysesUsed).toBe(expectedUsedAfter);
+      const current = await getUserByPhone(phone);
+      expect(current?.conversationState).toBe(crosses ? 'awaiting_checkout' : 'idle');
+    },
+  );
+
+  // 11 breakdown §F step 18: the meal_log insert and the free-tier increment
+  // (both wrapped in one withTransaction call by writeMealLogAndComposeReply,
+  // router.ts) must commit or roll back together. Calls the same two query
+  // functions the router composes, directly, to control exactly where the
+  // simulated failure lands — no subscription row exists for this user, so
+  // incrementFreeAnalysesUsed's UPDATE matches zero rows and throws, strictly
+  // after createMealLog has already run inside the same transaction.
+  it('rolls back the meal_log insert too when the free-tier increment fails partway through the same transaction', async () => {
+    const user = await createUser(`+1${Date.now()}26`);
+    const candidate = fakeCandidate();
+
+    await expect(
+      withTransaction(async (client) => {
+        await createMealLog(user.id, candidate, 'photo', '2026-08-28', client);
+        await incrementFreeAnalysesUsed(client, user.id);
+      }),
+    ).rejects.toThrow();
+
+    const logs = await getRecentMealLogsForUser(user.id, { sinceDate: '2020-01-01' });
+    expect(logs).toHaveLength(0);
+  });
+
+  it('commits the meal_log insert and the free-tier increment together when neither fails', async () => {
+    const user = await createUser(`+1${Date.now()}27`);
+    await getOrCreateSubscriptionForUser(user.id);
+    const candidate = fakeCandidate();
+
+    await withTransaction(async (client) => {
+      await createMealLog(user.id, candidate, 'photo', '2026-08-28', client);
+      await incrementFreeAnalysesUsed(client, user.id);
+    });
+
+    const logs = await getRecentMealLogsForUser(user.id, { sinceDate: '2020-01-01' });
+    expect(logs).toHaveLength(1);
+    const subscription = await getSubscriptionStatus(user.id);
+    expect(subscription?.freeAnalysesUsed).toBe(1);
   });
 
   it('also fires from the awaiting_clarification completion path, not just the fast path', async () => {

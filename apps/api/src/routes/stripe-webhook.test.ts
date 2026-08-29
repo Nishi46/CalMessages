@@ -1,12 +1,17 @@
 import Stripe from 'stripe';
 import {
+  createGoal,
   createUser,
   getPool,
   getSubscriptionStatus,
   getUserByPhone,
   upsertSubscriptionFromCheckout,
 } from '@tally/db-consumer';
+import type { TwilioSendClient } from '@tally/messaging';
+import type { MealCandidate } from '@tally/shared-types';
+import type { TextParser, VisionProvider } from '@tally/vision';
 import { afterAll, describe, expect, it, vi } from 'vitest';
+import { createInboundMessageHandler } from '../lib/router.js';
 import { buildApp } from '../server.js';
 
 const STRIPE_SECRET_KEY = 'sk_test_fake';
@@ -402,6 +407,130 @@ describe('POST /webhooks/stripe — subscription lifecycle backstop (11 breakdow
     expect(second.statusCode).toBe(200);
     const subscription = await getSubscriptionStatus(user.id);
     expect(subscription?.status).toBe('active');
+  });
+});
+
+function fakeCandidate(overrides: Partial<MealCandidate> = {}): MealCandidate {
+  return {
+    items: [{ name: 'eggs', portion: '3', calories: 210, protein: 18, carbs: 2, fat: 15 }],
+    calories: 210,
+    protein: 18,
+    carbs: 2,
+    fat: 15,
+    confidence: 'high',
+    isFood: true,
+    ...overrides,
+  };
+}
+
+function noTextParser(): TextParser {
+  return { parse: vi.fn().mockRejectedValue(new Error('textParser should not be called')) };
+}
+
+// 11 breakdown §F step 20: the whole checkout round trip told as one
+// continuous script — a user hits the free-tier limit, gets the paywall,
+// "completes checkout" via the real webhook route, and resumes logging with
+// no re-onboarding. Uses createInboundMessageHandler directly (like every
+// router.test.ts scenario) for the messaging side, and the real
+// registerStripeWebhookRoute (via buildApp + app.inject) for the checkout
+// side — the one piece this test actually needs to exercise at the HTTP
+// layer, since that's where signature verification and idempotency live.
+describe('awaiting_checkout -> idle round trip (11 breakdown §F step 20, end-to-end)', () => {
+  it('hits the limit, pays, resumes logging normally with no re-onboarding — and a replayed checkout event stays a no-op', async () => {
+    const phone = `+1${Date.now()}10`;
+    const user = await createUser(phone);
+    await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
+    await createGoal(user.id, { type: 'maintain', dailyCalories: 2000, dailyProtein: 150 });
+    // One log short of the limit — the very next one crosses it.
+    await getPool().query('INSERT INTO subscription (user_id, free_analyses_used) VALUES ($1, 19)', [user.id]);
+
+    const sendClient: TwilioSendClient & { send: ReturnType<typeof vi.fn> } = {
+      send: vi.fn().mockResolvedValue({ sid: 'SM_fake' }),
+    };
+    const checkoutLink = 'https://checkout.stripe.com/c/e2e_fake';
+    const handleInboundMessage = createInboundMessageHandler({
+      sendClient,
+      visionProvider: { recognize: vi.fn().mockResolvedValue(fakeCandidate()) } satisfies VisionProvider,
+      textParser: noTextParser(),
+      createCheckoutLink: vi.fn().mockResolvedValue(checkoutLink),
+    });
+
+    // Turn 1: the log that crosses the limit — delivered in full, followed
+    // by the paywall message with a real checkout link.
+    await handleInboundMessage({ userId: user.id, photoKey: 'meal-photos/1', currentState: 'idle' });
+
+    expect(sendClient.send).toHaveBeenCalledTimes(2);
+    const [, paywallBody] = sendClient.send.mock.calls[1] as [string, string];
+    expect(paywallBody).toContain(checkoutLink);
+    let current = await getUserByPhone(phone);
+    expect(current?.conversationState).toBe('awaiting_checkout');
+
+    // Turn 2: "completes checkout" — the real webhook route, signature-
+    // verified, exactly as Stripe would call it.
+    const app = buildApp(
+      {
+        authToken: 'twilio_auth_token_fake',
+        publicBaseUrl: 'https://example.com',
+        resolveOrCreateUser: vi.fn(),
+        fetchMedia: vi.fn(),
+        objectStore: { putObject: vi.fn(), getObject: vi.fn() },
+        handleInboundMessage: vi.fn(),
+        updateMessageEventStatus: vi.fn(),
+        stripeSecretKey: STRIPE_SECRET_KEY,
+        stripeWebhookSecret: STRIPE_WEBHOOK_SECRET,
+        sendClient,
+      },
+      { logger: false },
+    );
+    const { payload, signature } = signedPayload(
+      checkoutSessionCompletedEvent({ client_reference_id: user.id }),
+    );
+
+    const checkoutResponse = await app.inject({
+      method: 'POST',
+      url: PATH,
+      headers: { 'stripe-signature': signature, 'content-type': 'application/json' },
+      payload,
+    });
+
+    expect(checkoutResponse.statusCode).toBe(200);
+    expect(sendClient.send).toHaveBeenCalledTimes(3); // + one confirmation text
+    const subscriptionAfterCheckout = await getSubscriptionStatus(user.id);
+    expect(subscriptionAfterCheckout?.status).toBe('active');
+    current = await getUserByPhone(phone);
+    expect(current?.conversationState).toBe('idle');
+
+    // 11 breakdown §F step 19: the same fixture, replayed — still a no-op,
+    // not a second confirmation text and not a second subscription upsert.
+    const replayResponse = await app.inject({
+      method: 'POST',
+      url: PATH,
+      headers: { 'stripe-signature': signature, 'content-type': 'application/json' },
+      payload,
+    });
+    expect(replayResponse.statusCode).toBe(200);
+    expect(sendClient.send).toHaveBeenCalledTimes(3);
+    const { rows: subscriptionRows } = await getPool().query('SELECT id FROM subscription WHERE user_id = $1', [
+      user.id,
+    ]);
+    expect(subscriptionRows).toHaveLength(1);
+
+    // Turn 3: the very next meal photo — logs normally, no re-onboarding
+    // prompt, resuming from exactly the 'idle' state normal logging uses
+    // (Build Spec §4.6 step 3).
+    current = await getUserByPhone(phone);
+    await handleInboundMessage({
+      userId: user.id,
+      photoKey: 'meal-photos/2',
+      currentState: current!.conversationState,
+    });
+
+    expect(sendClient.send).toHaveBeenCalledTimes(4);
+    const [, resumedLogBody] = sendClient.send.mock.calls[3] as [string, string];
+    expect(resumedLogBody).toContain('Logged: 210 cal, 18g protein, 2g carbs, 15g fat.');
+    expect(resumedLogBody).not.toMatch(/goal|onboard/i);
+    current = await getUserByPhone(phone);
+    expect(current?.conversationState).toBe('idle');
   });
 
   afterAll(async () => {
