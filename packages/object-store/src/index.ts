@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 
 export interface StoredObject {
   bytes: Uint8Array;
@@ -12,6 +12,11 @@ export interface ObjectStore {
   // back the photo this same store wrote at inbound-webhook time, keyed by
   // the object key persisted on the meal_content trigger's payload.
   getObject(key: string): Promise<StoredObject>;
+  // 12 §B step 8: the 30-day purge sweep's only use of this store — deletes
+  // a meal photo once its meal_log row is confirmed durably removed too.
+  // S3 DeleteObject is idempotent (no error on an already-missing key), so a
+  // retried purge tick can call this again safely.
+  deleteObject(key: string): Promise<void>;
 }
 
 export interface S3ObjectStoreConfig {
@@ -52,6 +57,9 @@ export function createS3ObjectStore(config: S3ObjectStoreConfig): ObjectStore {
       const result = await client.send(new GetObjectCommand({ Bucket: config.bucket, Key: key }));
       const bytes = (await result.Body?.transformToByteArray()) ?? new Uint8Array();
       return { bytes, contentType: result.ContentType ?? 'application/octet-stream' };
+    },
+    async deleteObject(key) {
+      await client.send(new DeleteObjectCommand({ Bucket: config.bucket, Key: key }));
     },
   };
 }

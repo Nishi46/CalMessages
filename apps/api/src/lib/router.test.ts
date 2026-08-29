@@ -918,6 +918,107 @@ describe('createInboundMessageHandler — pause/resume (12 §A)', () => {
   });
 });
 
+// 12 §B: account deletion. Terminal — once 'deleted', no further trigger
+// (including a second delete request) should change state or send a second
+// confirmation (step 6's "confirmed once in writing, never re-prompted").
+describe('createInboundMessageHandler — delete (12 §B)', () => {
+  it('"delete my data" from idle: sends the one confirmation, moves to deleted, and stamps deleted_requested_at', async () => {
+    const phone = `+1${Date.now()}33`;
+    const user = await createUser(phone);
+    await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
+    const sendClient = fakeSendClient();
+    const handleInboundMessage = createInboundMessageHandler({
+      sendClient,
+      visionProvider: noVisionProvider(),
+      textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
+    });
+
+    await handleInboundMessage({ userId: user.id, text: 'delete my data', currentState: 'idle' });
+
+    expect(sendClient.send).toHaveBeenCalledTimes(1);
+    const [, body] = sendClient.send.mock.calls[0] as [string, string];
+    expect(body).toContain('30 days');
+    expect(body).not.toContain('?');
+
+    const current = await getUserByPhone(phone);
+    expect(current?.conversationState).toBe('deleted');
+    expect(current?.deletedRequestedAt).not.toBeNull();
+  });
+
+  it('works from mid-onboarding too — a delete request has to work "from any state" (04 §6.1)', async () => {
+    const phone = `+1${Date.now()}34`;
+    const user = await createUser(phone);
+    await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [
+      user.id,
+      'onboarding_q1',
+    ]);
+    const sendClient = fakeSendClient();
+    const handleInboundMessage = createInboundMessageHandler({
+      sendClient,
+      visionProvider: noVisionProvider(),
+      textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
+    });
+
+    await handleInboundMessage({
+      userId: user.id,
+      text: 'please delete my account',
+      currentState: 'onboarding_q1',
+    });
+
+    const current = await getUserByPhone(phone);
+    expect(current?.conversationState).toBe('deleted');
+  });
+
+  it('a second delete request once already deleted is a no-op: no second confirmation, no re-stamped timestamp', async () => {
+    const phone = `+1${Date.now()}35`;
+    const user = await createUser(phone);
+    await getPool().query(
+      'UPDATE "user" SET conversation_state = $2, deleted_requested_at = now() WHERE id = $1',
+      [user.id, 'deleted'],
+    );
+    const before = await getUserByPhone(phone);
+    const sendClient = fakeSendClient();
+    const handleInboundMessage = createInboundMessageHandler({
+      sendClient,
+      visionProvider: noVisionProvider(),
+      textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
+    });
+
+    await handleInboundMessage({ userId: user.id, text: 'delete my data', currentState: 'deleted' });
+
+    expect(sendClient.send).not.toHaveBeenCalled();
+    const after = await getUserByPhone(phone);
+    expect(after?.conversationState).toBe('deleted');
+    expect(after?.deletedRequestedAt?.getTime()).toBe(before?.deletedRequestedAt?.getTime());
+  });
+
+  it('"delete that" while idle still corrects/deletes a meal log, not the whole account', async () => {
+    const phone = `+1${Date.now()}36`;
+    const user = await createUser(phone);
+    await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
+    const today = computeLocalDate(new Date(), user.timezone);
+    await createMealLog(user.id, fakeCandidate({ calories: 300 }), 'photo', today);
+    const sendClient = fakeSendClient();
+    const handleInboundMessage = createInboundMessageHandler({
+      sendClient,
+      visionProvider: noVisionProvider(),
+      textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
+    });
+
+    await handleInboundMessage({ userId: user.id, text: 'delete that', currentState: 'idle' });
+
+    const [, body] = sendClient.send.mock.calls[0] as [string, string];
+    expect(body).toContain('Deleted. Total for that day is now 0 cal.');
+    const current = await getUserByPhone(phone);
+    expect(current?.conversationState).toBe('idle');
+    expect(current?.deletedRequestedAt).toBeNull();
+  });
+});
+
 // 09 §G step 30: the whole sprint's fast path, told as continuous
 // user-facing scripts rather than isolated assertions — each turn re-reads
 // the user's persisted state the way the real webhook route does, so a

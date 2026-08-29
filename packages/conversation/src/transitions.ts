@@ -17,6 +17,20 @@ function key(fromState: ConversationState, trigger: Trigger): string {
   return `${fromState}:${trigger}`;
 }
 
+// Every state a delete request can fire from (04 §6.1: "any state") — every
+// ConversationState except 'deleted' itself, which is terminal.
+const DELETABLE_STATES: ConversationState[] = [
+  'new',
+  'onboarding_q1',
+  'onboarding_q2',
+  'onboarding_q3',
+  'idle',
+  'awaiting_clarification',
+  'awaiting_checkout',
+  'paused',
+  'care_pause',
+];
+
 // 04 §6.1 — the new -> onboarding_q1/q2/q3 -> idle slice from Sprint 2, plus
 // Sprint 4's awaiting_clarification:clarification_answer (09 §C step 12) —
 // resolving a held meal candidate against the clarifying answer and writing
@@ -84,6 +98,24 @@ const TRANSITIONS: Record<string, Transition> = {
     toState: 'idle',
     sideEffects: [{ type: 'sendReply', template: 'resume_confirmed' }],
   },
+  // 12 §B step 5 (04 §6.1): 'delete' has the same {toState, sideEffects}
+  // outcome from every non-terminal state — generated below rather than
+  // hand-written once per state, but every entry still lives in this one
+  // flat table (no separate "wildcard" resolution path), so resolveTransition
+  // stays a single lookup for every {state, trigger} pair. 'deleted' itself
+  // is deliberately excluded: terminal means no row transitions *out* of it
+  // (step 5's "confirm resolveTransition falls through to the safe fallback"
+  // once a user is already deleted — texting the phrase again is a no-op,
+  // not a second confirmation).
+  ...Object.fromEntries(
+    DELETABLE_STATES.map((state) => [
+      key(state, 'delete'),
+      {
+        toState: 'deleted',
+        sideEffects: [{ type: 'sendReply', template: 'delete_account_confirmed' }],
+      },
+    ]),
+  ),
 };
 
 // Same state, no side effects. A miss must never throw (04 §14) — an

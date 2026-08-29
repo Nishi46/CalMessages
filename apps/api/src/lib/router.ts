@@ -187,11 +187,13 @@ export function createInboundMessageHandler(deps: RouterDeps) {
     if (crossedFreeTierLimit) {
       await triggerPaywall(payload.userId, deps);
     } else {
-      // 12 §A step 4: paused_at rides along with this same UPDATE only for
-      // the two transitions that actually change it — every other trigger
-      // passes undefined, leaving the column untouched.
-      const pausedAt = trigger === 'pause' ? new Date() : trigger === 'resume' ? null : undefined;
-      await updateUserState(payload.userId, transition.toState, mergedContext, undefined, pausedAt);
+      // 12 §A step 4 / 12 §B step 7: paused_at/deleted_requested_at ride
+      // along with this same UPDATE only for the transitions that actually
+      // change them — every other trigger leaves both columns untouched.
+      await updateUserState(payload.userId, transition.toState, mergedContext, undefined, {
+        pausedAt: trigger === 'pause' ? new Date() : trigger === 'resume' ? null : undefined,
+        deletedRequestedAt: trigger === 'delete' ? new Date() : undefined,
+      });
     }
   };
 }

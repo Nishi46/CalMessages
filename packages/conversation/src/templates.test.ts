@@ -117,6 +117,14 @@ describe('pause/resume templates (12 §A step 1)', () => {
   });
 });
 
+describe('delete_account_confirmed (12 §B step 6)', () => {
+  it('is a statement, mentions the 30-day window, and asks nothing (never re-prompted or talked out of)', () => {
+    const rendered = renderTemplate('delete_account_confirmed');
+    expect(rendered).toContain('30 days');
+    expect(rendered).not.toContain('?');
+  });
+});
+
 describe('proactive_checkin (09 §E step 16)', () => {
   it('matches Build Spec §4.4\'s sample transcript exactly', () => {
     expect(renderTemplate('proactive_checkin')).toBe("How'd dinner go tonight?");

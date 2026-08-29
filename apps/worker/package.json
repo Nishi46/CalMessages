@@ -13,6 +13,7 @@
     "@tally/conversation": "*",
     "@tally/db-consumer": "*",
     "@tally/messaging": "*",
+    "@tally/object-store": "*",
     "@tally/time": "*",
     "bullmq": "^6.3.1",
     "ioredis": "^6.0.0"

@@ -19,6 +19,15 @@ describe('resolveTransition (07 §A, breakdown steps 4-5)', () => {
     ['awaiting_checkout', 'checkout_completed', 'idle', ['sendReply']],
     ['idle', 'pause', 'paused', ['sendReply']],
     ['paused', 'resume', 'idle', ['sendReply']],
+    ['new', 'delete', 'deleted', ['sendReply']],
+    ['onboarding_q1', 'delete', 'deleted', ['sendReply']],
+    ['onboarding_q2', 'delete', 'deleted', ['sendReply']],
+    ['onboarding_q3', 'delete', 'deleted', ['sendReply']],
+    ['idle', 'delete', 'deleted', ['sendReply']],
+    ['awaiting_clarification', 'delete', 'deleted', ['sendReply']],
+    ['awaiting_checkout', 'delete', 'deleted', ['sendReply']],
+    ['paused', 'delete', 'deleted', ['sendReply']],
+    ['care_pause', 'delete', 'deleted', ['sendReply']],
   ] as const)(
     '%s + %s -> %s',
     (fromState, trigger, expectedToState, expectedEffectTypes) => {
@@ -40,6 +49,9 @@ describe('resolveTransition (07 §A, breakdown steps 4-5)', () => {
     ['idle', 'correction'],
     ['paused', 'pause'],
     ['idle', 'resume'],
+    ['deleted', 'delete'],
+    ['deleted', 'first_contact'],
+    ['deleted', 'meal_content'],
   ] as const)('%s + %s falls back to a same-state no-op instead of throwing', (fromState, trigger) => {
     expect(() => resolveTransition(fromState, trigger)).not.toThrow();
 
@@ -72,6 +84,7 @@ describe('resolveTransition (07 §A, breakdown steps 4-5)', () => {
       'checkout_completed',
       'pause',
       'resume',
+      'delete',
       'unhandled',
     ];
 
@@ -79,6 +92,33 @@ describe('resolveTransition (07 §A, breakdown steps 4-5)', () => {
       for (const trigger of triggers) {
         expect(() => resolveTransition(state, trigger)).not.toThrow();
       }
+    }
+  });
+
+  // 12 §B step 5: "confirm resolveTransition falls through to the safe
+  // fallback for every trigger once a user is deleted" — deleted is
+  // terminal, so unlike every other state, no trigger (not even 'delete'
+  // itself) transitions out of it.
+  it('deleted is terminal: every trigger falls back to a same-state no-op', () => {
+    const triggers: Trigger[] = [
+      'first_contact',
+      'onboarding_answer',
+      'meal_content',
+      'clarification_answer',
+      'correction',
+      'limit_crossed',
+      'checkout_completed',
+      'pause',
+      'resume',
+      'delete',
+      'unhandled',
+    ];
+
+    for (const trigger of triggers) {
+      const transition = resolveTransition('deleted', trigger);
+      expect(transition.toState).toBe('deleted');
+      expect(transition.sideEffects).toEqual([]);
+      expect(transition.isFallback).toBe(true);
     }
   });
 });

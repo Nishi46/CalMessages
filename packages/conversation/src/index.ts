@@ -11,6 +11,7 @@ export type { InboundSignal } from './classifyTrigger.js';
 export { classifyTrigger } from './classifyTrigger.js';
 export { isCorrectionText, isDeleteText } from './correctionPattern.js';
 export { isPauseText, isResumeText } from './pausePattern.js';
+export { isDeleteAccountText } from './deleteAccountPattern.js';
 export type { DayReference } from './dayReference.js';
 export { parseDayReference } from './dayReference.js';
 export type { PendingContext } from './pendingContext.js';

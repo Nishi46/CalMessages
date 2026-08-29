@@ -83,6 +83,13 @@ export const TEMPLATES = {
   pause_confirmed:
     "Nudges are paused — I won't check in until you text \"resume.\" Logging still works anytime you text in.",
   resume_confirmed: "Nudges are back on. Send your next meal whenever you're ready.",
+
+  // --- Delete (Sprint 7 §B step 6, Build Spec §4.7 step 3) ---
+  // A statement, confirmed once — "never re-prompted or talked out of" rules
+  // out a confirmation question ("are you sure?") entirely, not just a
+  // second one.
+  delete_account_confirmed:
+    "Got it — your data will be permanently deleted within 30 days, and I won't text you again after this.",
 } as const satisfies Record<string, string>;
 
 export type TemplateId = keyof typeof TEMPLATES;

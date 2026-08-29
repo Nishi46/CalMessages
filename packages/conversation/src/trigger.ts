@@ -17,6 +17,12 @@
 // pause/resume (12 §A step 1) are classified from keyword match, distinct
 // from Twilio's carrier-level STOP/START (12 §C step 9) which never reaches
 // classifyTrigger as text at all.
+//
+// delete (12 §B step 5) is also keyword-classified, but — unlike
+// pause/resume, which only fire from one specific state each — it's checked
+// "from any state" (04 §6.1), ahead of every other branch in classifyTrigger,
+// since a data-deletion request has to work regardless of where the user's
+// conversation happens to be.
 export type Trigger =
   | 'first_contact'
   | 'onboarding_answer'
@@ -27,4 +33,5 @@ export type Trigger =
   | 'checkout_completed'
   | 'pause'
   | 'resume'
+  | 'delete'
   | 'unhandled';

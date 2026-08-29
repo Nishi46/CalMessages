@@ -1,7 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { getPool, getUserByPhone } from '@tally/db-consumer';
+import type { ObjectStore } from '@tally/object-store';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import type { ObjectStore } from '../lib/objectStore.js';
 import { resolveOrCreateUser } from '../lib/users.js';
 import { buildApp } from '../server.js';
 
@@ -28,7 +28,7 @@ function noopDeps() {
     publicBaseUrl: PUBLIC_BASE_URL,
     resolveOrCreateUser: vi.fn(),
     fetchMedia: vi.fn(),
-    objectStore: { putObject: vi.fn(), getObject: vi.fn() } satisfies ObjectStore,
+    objectStore: { putObject: vi.fn(), getObject: vi.fn(), deleteObject: vi.fn() } satisfies ObjectStore,
     handleInboundMessage: vi.fn().mockResolvedValue(undefined),
     updateMessageEventStatus: vi.fn(),
     stripeSecretKey: 'sk_test_fake',
@@ -208,7 +208,7 @@ describe('POST /webhooks/twilio/inbound — against a real Postgres (breakdown s
       publicBaseUrl: PUBLIC_BASE_URL,
       resolveOrCreateUser,
       fetchMedia: vi.fn(),
-      objectStore: { putObject: vi.fn(), getObject: vi.fn() },
+      objectStore: { putObject: vi.fn(), getObject: vi.fn(), deleteObject: vi.fn() },
       handleInboundMessage: vi.fn().mockResolvedValue(undefined),
       updateMessageEventStatus: vi.fn(),
       stripeSecretKey: 'sk_test_fake',

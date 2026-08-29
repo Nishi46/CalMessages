@@ -62,6 +62,30 @@ describe('classifyTrigger (07 §B, breakdown step 6)', () => {
     ).toBe('meal_content');
   });
 
+  it('classifies delete-account language as delete, ahead of every other branch, from any state', () => {
+    const states: ConversationState[] = [
+      'new',
+      'onboarding_q1',
+      'idle',
+      'awaiting_clarification',
+      'awaiting_checkout',
+      'paused',
+      'care_pause',
+    ];
+
+    for (const currentState of states) {
+      expect(
+        classifyTrigger({ currentState, hasText: true, hasPhoto: false, text: 'delete my data' }),
+      ).toBe('delete');
+    }
+  });
+
+  it('does not classify "delete that" (a meal-log correction) as an account-deletion request', () => {
+    expect(
+      classifyTrigger({ currentState: 'idle', hasText: true, hasPhoto: false, text: 'delete that' }),
+    ).toBe('correction');
+  });
+
   it('classifies idle-state pause language as pause', () => {
     expect(
       classifyTrigger({ currentState: 'idle', hasText: true, hasPhoto: false, text: 'pause' }),

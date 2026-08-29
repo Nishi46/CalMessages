@@ -9,6 +9,7 @@
     { "path": "packages/conversation" },
     { "path": "packages/messaging" },
     { "path": "packages/billing" },
+    { "path": "packages/object-store" },
     { "path": "apps/api" },
     { "path": "apps/worker" }
   ]

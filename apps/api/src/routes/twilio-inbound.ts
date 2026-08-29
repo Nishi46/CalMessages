@@ -1,8 +1,8 @@
 import twilio from 'twilio';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { User } from '@tally/db-consumer';
+import type { ObjectStore } from '@tally/object-store';
 import type { FetchedMedia } from '../lib/media.js';
-import type { ObjectStore } from '../lib/objectStore.js';
 import type { RouterHandoffPayload } from '../lib/router.js';
 
 export interface TwilioInboundDeps {

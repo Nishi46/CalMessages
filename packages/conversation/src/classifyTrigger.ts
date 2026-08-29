@@ -2,6 +2,7 @@ import type { ConversationState } from './state.js';
 import type { Trigger } from './trigger.js';
 import { isCorrectionText } from './correctionPattern.js';
 import { isPauseText, isResumeText } from './pausePattern.js';
+import { isDeleteAccountText } from './deleteAccountPattern.js';
 
 export interface InboundSignal {
   currentState: ConversationState;
@@ -27,6 +28,13 @@ const ONBOARDING_STATES: ConversationState[] = ['onboarding_q1', 'onboarding_q2'
 export function classifyTrigger(signal: InboundSignal): Trigger {
   if (!signal.hasText && !signal.hasPhoto) {
     return 'unhandled';
+  }
+
+  // 12 §B step 5: checked ahead of every state-specific branch below — a
+  // data-deletion request has to work "from any state" (04 §6.1), including
+  // mid-onboarding or mid-clarification, not just from idle.
+  if (signal.hasText && signal.text !== undefined && isDeleteAccountText(signal.text)) {
+    return 'delete';
   }
 
   if (signal.currentState === 'new') {

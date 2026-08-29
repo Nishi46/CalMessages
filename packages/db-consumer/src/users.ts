@@ -8,6 +8,7 @@ export interface User {
   createdAt: Date;
   optOutAt: Date | null;
   pausedAt: Date | null;
+  deletedRequestedAt: Date | null;
   referralCode: string | null;
   // Full state enum lands with the conversation package in Sprint 2 (04 §6.1).
   conversationState: string;
@@ -22,6 +23,7 @@ interface UserRow {
   created_at: Date;
   opt_out_at: Date | null;
   paused_at: Date | null;
+  deleted_requested_at: Date | null;
   referral_code: string | null;
   conversation_state: string;
   conversation_context: unknown | null;
@@ -36,6 +38,7 @@ function rowToUser(row: UserRow): User {
     createdAt: row.created_at,
     optOutAt: row.opt_out_at,
     pausedAt: row.paused_at,
+    deletedRequestedAt: row.deleted_requested_at,
     referralCode: row.referral_code,
     conversationState: row.conversation_state,
     conversationContext: row.conversation_context,
@@ -73,37 +76,82 @@ export async function getActiveUsersForScheduling(): Promise<User[]> {
   return rows.map(rowToUser);
 }
 
+// The per-state timestamp columns (12 §A step 4, 12 §B step 7) that ride
+// along with a state transition's UPDATE — undefined (the default) leaves a
+// column untouched, so every pre-existing call site is unaffected. Only the
+// router's pause/resume/delete transitions pass one of these, so the write
+// happens in the same UPDATE as conversation_state/conversation_context
+// rather than a second round-trip.
+export interface UpdateUserStateColumns {
+  pausedAt?: Date | null;
+  deletedRequestedAt?: Date | null;
+}
+
 // `client` defaults to the pool so every pre-Sprint-6 call site is
 // unaffected — 11 breakdown §D step 14 passes an open transaction client
 // here instead, so this write and the processed_stripe_event marker commit
 // atomically with the rest of a webhook's DB-side effects.
-//
-// pausedAt (12 §A step 4) is left undefined by every pre-existing call
-// site, which leaves the column untouched — only the router's pause/resume
-// transitions pass a real Date (pause) or null (resume), so this one column
-// write rides along with the same state/context UPDATE rather than a second
-// round-trip.
 export async function updateUserState(
   userId: string,
   conversationState: string,
   conversationContext: unknown = null,
   client: DbClient = getPool(),
-  pausedAt?: Date | null,
+  columns: UpdateUserStateColumns = {},
 ): Promise<User> {
-  const { rows } =
-    pausedAt === undefined
-      ? await client.query<UserRow>(
-          `UPDATE "user" SET conversation_state = $2, conversation_context = $3 WHERE id = $1 RETURNING *`,
-          [userId, conversationState, conversationContext === null ? null : JSON.stringify(conversationContext)],
-        )
-      : await client.query<UserRow>(
-          `UPDATE "user" SET conversation_state = $2, conversation_context = $3, paused_at = $4 WHERE id = $1 RETURNING *`,
-          [
-            userId,
-            conversationState,
-            conversationContext === null ? null : JSON.stringify(conversationContext),
-            pausedAt,
-          ],
-        );
+  const setClauses = ['conversation_state = $2', 'conversation_context = $3'];
+  const values: unknown[] = [
+    userId,
+    conversationState,
+    conversationContext === null ? null : JSON.stringify(conversationContext),
+  ];
+
+  if (columns.pausedAt !== undefined) {
+    values.push(columns.pausedAt);
+    setClauses.push(`paused_at = $${values.length}`);
+  }
+  if (columns.deletedRequestedAt !== undefined) {
+    values.push(columns.deletedRequestedAt);
+    setClauses.push(`deleted_requested_at = $${values.length}`);
+  }
+
+  const { rows } = await client.query<UserRow>(
+    `UPDATE "user" SET ${setClauses.join(', ')} WHERE id = $1 RETURNING *`,
+    values,
+  );
+  return rowToUser(rows[0]);
+}
+
+// 12 §B step 7: candidate rows for the 30-day purge sweep. scrubUserPii
+// below clears deleted_requested_at once a user is actually purged, which is
+// what keeps a re-run of the sweep from re-selecting an already-purged
+// user — no separate "purged" flag needed.
+export async function getUsersPendingPurge(cutoff: Date): Promise<User[]> {
+  const { rows } = await getPool().query<UserRow>(
+    `SELECT * FROM "user"
+     WHERE conversation_state = 'deleted' AND deleted_requested_at IS NOT NULL AND deleted_requested_at < $1`,
+    [cutoff],
+  );
+  return rows.map(rowToUser);
+}
+
+// 12 §B step 8: scrubs the user row's PII in place rather than deleting the
+// row outright — goal/subscription/message_event rows all FK to user.id, and
+// a hard delete of the row would either cascade away billing/audit history
+// or need every one of those FKs relaxed first, neither of which the sprint
+// doc asks for. phone_e164 is NOT NULL + UNIQUE, so it's replaced with a
+// non-identifying placeholder derived from the user's own id rather than
+// nulled. Clearing deleted_requested_at marks this user done for
+// getUsersPendingPurge above.
+export async function scrubUserPii(userId: string): Promise<User> {
+  const { rows } = await getPool().query<UserRow>(
+    `UPDATE "user"
+     SET phone_e164 = 'deleted-' || id::text,
+         referral_code = NULL,
+         conversation_context = NULL,
+         deleted_requested_at = NULL
+     WHERE id = $1
+     RETURNING *`,
+    [userId],
+  );
   return rowToUser(rows[0]);
 }

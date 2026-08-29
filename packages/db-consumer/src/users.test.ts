@@ -32,10 +32,10 @@ describe('db-consumer users (smoke test against a real Postgres, per breakdown S
   // 12 §A step 4: paused_at is left untouched (the assertion above already
   // covers that — its update has no fifth arg) unless a caller explicitly
   // passes a Date or null.
-  it('leaves paused_at untouched when the pausedAt param is omitted', async () => {
+  it('leaves paused_at untouched when the columns param is omitted', async () => {
     const phone = `+1${Date.now()}1b`;
     const created = await createUser(phone);
-    await updateUserState(created.id, 'idle', null, undefined, new Date());
+    await updateUserState(created.id, 'idle', null, undefined, { pausedAt: new Date() });
 
     const updated = await updateUserState(created.id, 'awaiting_checkout');
     expect(updated.pausedAt).not.toBeNull();
@@ -45,11 +45,28 @@ describe('db-consumer users (smoke test against a real Postgres, per breakdown S
     const phone = `+1${Date.now()}1c`;
     const created = await createUser(phone);
 
-    const paused = await updateUserState(created.id, 'paused', null, undefined, new Date());
+    const paused = await updateUserState(created.id, 'paused', null, undefined, { pausedAt: new Date() });
     expect(paused.pausedAt).not.toBeNull();
 
-    const resumed = await updateUserState(created.id, 'idle', null, undefined, null);
+    const resumed = await updateUserState(created.id, 'idle', null, undefined, { pausedAt: null });
     expect(resumed.pausedAt).toBeNull();
+  });
+
+  // 12 §B step 7: same shape as paused_at above, for the account-deletion
+  // column the purge sweep reads from.
+  it('stamps deleted_requested_at when a Date is passed, and clears it when null is passed', async () => {
+    const phone = `+1${Date.now()}1d`;
+    const created = await createUser(phone);
+
+    const deleted = await updateUserState(created.id, 'deleted', null, undefined, {
+      deletedRequestedAt: new Date(),
+    });
+    expect(deleted.deletedRequestedAt).not.toBeNull();
+
+    const scrubbed = await updateUserState(created.id, 'deleted', null, undefined, {
+      deletedRequestedAt: null,
+    });
+    expect(scrubbed.deletedRequestedAt).toBeNull();
   });
 });
 
@@ -100,11 +117,11 @@ describe('getActiveUsersForScheduling (09 breakdown §C step 7)', () => {
     const created = await createUser(phone);
     await updateUserState(created.id, 'idle');
 
-    await updateUserState(created.id, 'paused', null, undefined, new Date());
+    await updateUserState(created.id, 'paused', null, undefined, { pausedAt: new Date() });
     let active = await getActiveUsersForScheduling();
     expect(active.some((u) => u.id === created.id)).toBe(false);
 
-    await updateUserState(created.id, 'idle', null, undefined, null);
+    await updateUserState(created.id, 'idle', null, undefined, { pausedAt: null });
     active = await getActiveUsersForScheduling();
     expect(active.some((u) => u.id === created.id)).toBe(true);
   });

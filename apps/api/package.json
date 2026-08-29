@@ -9,12 +9,12 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.687.0",
     "@fastify/formbody": "^8.0.1",
     "@tally/billing": "*",
     "@tally/conversation": "*",
     "@tally/db-consumer": "*",
     "@tally/messaging": "*",
+    "@tally/object-store": "*",
     "@tally/time": "*",
     "@tally/vision": "*",
     "fastify": "^5.1.0",

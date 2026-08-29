@@ -2,6 +2,8 @@ import { createStripeSubscriptionStatusClient } from '@tally/billing';
 import { renderTemplate } from '@tally/conversation';
 import { getPool } from '@tally/db-consumer';
 import { createTwilioSendClient, sendMessage } from '@tally/messaging';
+import { createS3ObjectStore } from '@tally/object-store';
+import { DEFAULT_PURGE_GRACE_PERIOD_MS, runDeletionPurgeTick } from './deletionPurge.js';
 import { runEvaluationLoop } from './evaluationLoop.js';
 import { createNudgeJobProcessor } from './nudgeJobProcessor.js';
 import { createNudgeQueue, createNudgeWorker, type NudgeJobData } from './queue.js';
@@ -31,6 +33,16 @@ const authToken = requireEnv('TWILIO_AUTH_TOKEN');
 const fromNumber = requireEnv('TWILIO_PHONE_NUMBER');
 const stripeSecretKey = requireEnv('STRIPE_SECRET_KEY');
 
+// 12 §B step 8: the purge sweep's only use of an ObjectStore — same
+// construction as apps/api/src/index.ts, against the same bucket, since
+// this is the only other process that ever needs to touch meal photos.
+const objectStore = createS3ObjectStore({
+  endpoint: requireEnv('S3_ENDPOINT'),
+  bucket: requireEnv('S3_BUCKET'),
+  accessKeyId: requireEnv('S3_ACCESS_KEY_ID'),
+  secretAccessKey: requireEnv('S3_SECRET_ACCESS_KEY'),
+});
+
 // 04 §7.1's example interval; overridable rather than hardcoded per 09
 // breakdown §A step 4.
 const schedulerTickMs = process.env.SCHEDULER_TICK_MS ? Number(process.env.SCHEDULER_TICK_MS) : 15 * 60 * 1000;
@@ -59,6 +71,22 @@ if (!Number.isFinite(reconciliationStaleAfterMs) || reconciliationStaleAfterMs <
   );
 }
 
+// 12 §B step 7: daily, same cadence as reconciliation — a 30-day grace
+// period has no need for anything finer-grained, and this rides the same
+// leadership election rather than a second lock, for the same reasons
+// reconciliation does (see the comment on reconciliationTick below).
+const PURGE_TICK_MS = 24 * 60 * 60 * 1000;
+const purgeTickMs = process.env.PURGE_TICK_MS ? Number(process.env.PURGE_TICK_MS) : PURGE_TICK_MS;
+if (!Number.isFinite(purgeTickMs) || purgeTickMs <= 0) {
+  throw new Error(`PURGE_TICK_MS must be a positive number, got: ${process.env.PURGE_TICK_MS}`);
+}
+const purgeGracePeriodMs = process.env.PURGE_GRACE_PERIOD_MS
+  ? Number(process.env.PURGE_GRACE_PERIOD_MS)
+  : DEFAULT_PURGE_GRACE_PERIOD_MS;
+if (!Number.isFinite(purgeGracePeriodMs) || purgeGracePeriodMs <= 0) {
+  throw new Error(`PURGE_GRACE_PERIOD_MS must be a positive number, got: ${process.env.PURGE_GRACE_PERIOD_MS}`);
+}
+
 const connection = createRedisConnection(redisUrl);
 const nudgeQueue = createNudgeQueue(connection);
 
@@ -84,6 +112,10 @@ async function runReconciliationTickNow(): Promise<void> {
   await runReconciliationTick(subscriptionStatusClient, new Date(), reconciliationStaleAfterMs);
 }
 
+async function runDeletionPurgeTickNow(): Promise<void> {
+  await runDeletionPurgeTick(objectStore, new Date(), purgeGracePeriodMs);
+}
+
 let leadership: SchedulerLeadership | undefined;
 let tick: TickHandle | undefined;
 // 11 breakdown §E step 16: rides the same leadership the nudge scheduler
@@ -95,13 +127,21 @@ let tick: TickHandle | undefined;
 // exists for per-user job scheduling/dedup at nudge-send scale, which a
 // once-a-day sweep over a small stale-account set doesn't need.
 let reconciliationTick: TickHandle | undefined;
+// 12 §B step 7: same rationale as reconciliationTick above — a daily purge
+// sweep is harmless to run twice (getUsersPendingPurge's own WHERE clause
+// keeps an already-purged user from being reprocessed), so it rides the same
+// leadership election rather than a third lock.
+let purgeTick: TickHandle | undefined;
 
 async function start(): Promise<void> {
   leadership = await tryAcquireSchedulerLeadership(getPool());
   if (leadership.isLeader) {
-    console.log('[worker] acquired scheduler leadership; starting evaluation loop and reconciliation ticks');
+    console.log(
+      '[worker] acquired scheduler leadership; starting evaluation loop, reconciliation, and purge ticks',
+    );
     tick = startPeriodicTick(schedulerTickMs, runSchedulerTick);
     reconciliationTick = startPeriodicTick(reconciliationTickMs, runReconciliationTickNow);
+    purgeTick = startPeriodicTick(purgeTickMs, runDeletionPurgeTickNow);
   } else {
     console.log('[worker] scheduler leadership held elsewhere; running queue consumer only');
   }
@@ -114,6 +154,7 @@ async function shutdown(): Promise<void> {
   shuttingDown = true;
   tick?.stop();
   reconciliationTick?.stop();
+  purgeTick?.stop();
   await nudgeWorker.close();
   await nudgeQueue.close();
   await leadership?.release();

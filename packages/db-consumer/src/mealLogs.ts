@@ -204,3 +204,23 @@ export async function softDeleteMealLog(id: string): Promise<MealLog | null> {
   );
   return rows[0] ? rowToMealLog(rows[0]) : null;
 }
+
+// 12 §B step 8: the purge sweep's own lookup, ahead of the hard delete below
+// — it needs every photo_url regardless of soft_deleted_at (a soft-deleted
+// log's photo still needs purging too), which getRecentMealLogsForUser's
+// soft_deleted_at/local_date-scoped query can't give it.
+export async function getPhotoUrlsForUser(userId: string): Promise<string[]> {
+  const { rows } = await getPool().query<{ photo_url: string }>(
+    `SELECT photo_url FROM meal_log WHERE user_id = $1 AND photo_url IS NOT NULL`,
+    [userId],
+  );
+  return rows.map((row) => row.photo_url);
+}
+
+// Hard delete, distinct from softDeleteMealLog's user-facing "delete that"
+// correction (09 §E), which keeps the row so the day's total still accounts
+// for it. The 30-day purge (12 §B step 8) has no such reason to keep
+// anything — every log a user ever wrote is gone once this runs.
+export async function hardDeleteMealLogsForUser(userId: string): Promise<void> {
+  await getPool().query(`DELETE FROM meal_log WHERE user_id = $1`, [userId]);
+}
