@@ -80,6 +80,31 @@ describe('classifyTrigger (07 §B, breakdown step 6)', () => {
     }
   });
 
+  // 12 §G step 19: the other half of the classifier test — a representative
+  // set of clearly-unflagged normal logging text must not false-positive
+  // into flagged_language, from any of the states that otherwise process it
+  // as real logging/correction content.
+  it('does not false-positive ordinary meal-logging or correction text into flagged_language, from any logging-capable state', () => {
+    const states: ConversationState[] = ['idle', 'paused', 'care_pause'];
+    const ordinaryTexts = [
+      'grilled salmon and rice',
+      'three eggs and toast',
+      'chicken caesar salad, no dressing',
+      'protein shake after the gym',
+      'that was actually 2 eggs not 3',
+      'undo that',
+      'delete that',
+    ];
+
+    for (const currentState of states) {
+      for (const text of ordinaryTexts) {
+        expect(classifyTrigger({ currentState, hasText: true, hasPhoto: false, text })).not.toBe(
+          'flagged_language',
+        );
+      }
+    }
+  });
+
   it('flagged_language pre-empts delete, pause, and correction when the same message matches more than one pattern', () => {
     expect(
       classifyTrigger({

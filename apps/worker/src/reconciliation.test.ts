@@ -1,6 +1,7 @@
 import {
   createUser,
   getPool,
+  getStaleSubscriptions,
   getSubscriptionStatus,
   uniqueTestPhone,
   upsertSubscriptionFromCheckout,
@@ -69,14 +70,20 @@ describe('runReconciliationTick (11 breakdown §E step 16, against a real Postgr
     expect(freshSubscription?.status).toBe('active');
   });
 
+  // Asserted against getStaleSubscriptions directly, scoped to this test's
+  // own row, rather than "the mock was never called at all" — this dev
+  // Postgres is shared and never reset between runs, and a couple of tests
+  // below (by design) leave a subscription permanently un-synced, so an
+  // unscoped "not called at all" assertion flakes once enough of those
+  // accumulate across repeated runs. The real claim under test — that a
+  // NULL stripe_subscription_id excludes a row — is what this checks.
   it('ignores a free-tier row with no stripe_subscription_id', async () => {
     const user = await createUser(uniqueTestPhone());
     await getPool().query(`INSERT INTO subscription (user_id) VALUES ($1)`, [user.id]);
-    const client = fakeStatusClient(vi.fn());
 
-    await runReconciliationTick(client, new Date(), STALE_AFTER_MS);
+    const stale = await getStaleSubscriptions(new Date());
 
-    expect(client.getSubscriptionStatus).not.toHaveBeenCalled();
+    expect(stale.some((s) => s.userId === user.id)).toBe(false);
   });
 
   it('leaves stripe_synced_at untouched when Stripe reports a status with no confident local mapping', async () => {
