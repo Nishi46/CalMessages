@@ -62,6 +62,43 @@ describe('classifyTrigger (07 §B, breakdown step 6)', () => {
     ).toBe('meal_content');
   });
 
+  it('classifies flagged language as flagged_language, ahead of every other branch, from any state', () => {
+    const states: ConversationState[] = [
+      'new',
+      'onboarding_q1',
+      'idle',
+      'awaiting_clarification',
+      'awaiting_checkout',
+      'paused',
+      'care_pause',
+    ];
+
+    for (const currentState of states) {
+      expect(
+        classifyTrigger({ currentState, hasText: true, hasPhoto: false, text: 'I want to kill myself' }),
+      ).toBe('flagged_language');
+    }
+  });
+
+  it('flagged_language pre-empts delete, pause, and correction when the same message matches more than one pattern', () => {
+    expect(
+      classifyTrigger({
+        currentState: 'idle',
+        hasText: true,
+        hasPhoto: false,
+        text: 'I want to kill myself, delete my data',
+      }),
+    ).toBe('flagged_language');
+    expect(
+      classifyTrigger({
+        currentState: 'idle',
+        hasText: true,
+        hasPhoto: false,
+        text: 'pause — I want to kill myself',
+      }),
+    ).toBe('flagged_language');
+  });
+
   it('classifies delete-account language as delete, ahead of every other branch, from any state', () => {
     const states: ConversationState[] = [
       'new',

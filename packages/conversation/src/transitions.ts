@@ -17,9 +17,10 @@ function key(fromState: ConversationState, trigger: Trigger): string {
   return `${fromState}:${trigger}`;
 }
 
-// Every state a delete request can fire from (04 §6.1: "any state") — every
-// ConversationState except 'deleted' itself, which is terminal.
-const DELETABLE_STATES: ConversationState[] = [
+// Every ConversationState except 'deleted' itself, which is terminal — the
+// set both 'delete' (04 §6.1: "any state") and 'flagged_language' (04 §6.1:
+// "Any state, on flagged language") fire from.
+const NON_TERMINAL_STATES: ConversationState[] = [
   'new',
   'onboarding_q1',
   'onboarding_q2',
@@ -108,11 +109,33 @@ const TRANSITIONS: Record<string, Transition> = {
   // once a user is already deleted — texting the phrase again is a no-op,
   // not a second confirmation).
   ...Object.fromEntries(
-    DELETABLE_STATES.map((state) => [
+    NON_TERMINAL_STATES.map((state) => [
       key(state, 'delete'),
       {
         toState: 'deleted',
         sideEffects: [{ type: 'sendReply', template: 'delete_account_confirmed' }],
+      },
+    ]),
+  ),
+  // 12 §D step 13: same generated-rows shape as 'delete' above, for the same
+  // reason — a single keyword list duplicated across nine states' worth of
+  // hand-written rows risks missing one (the breakdown's own stated reason
+  // to prefer this over per-state entries). 'care_pause' is included (not
+  // excluded like 'deleted'): a second flagged message while already in
+  // care_pause still gets the caring reply again rather than silently
+  // no-op'ing — re-sending it is the safe direction to err in here, same
+  // "high false-positive tolerance" posture as the classifier itself.
+  // Whether flagged language from an already-*deleted* user should still
+  // get a reply is exactly the kind of product/safety-posture call 12 §D
+  // step 12 says not to guess at — left excluded here, matching 'delete'
+  // and the already-shipped, tested "deleted is terminal" invariant, not
+  // decided asymmetrically for this one trigger.
+  ...Object.fromEntries(
+    NON_TERMINAL_STATES.map((state) => [
+      key(state, 'flagged_language'),
+      {
+        toState: 'care_pause',
+        sideEffects: [{ type: 'sendReply', template: 'care_pause_entered' }],
       },
     ]),
   ),

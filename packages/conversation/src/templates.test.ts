@@ -125,6 +125,15 @@ describe('delete_account_confirmed (12 §B step 6)', () => {
   });
 });
 
+describe('care_pause_entered (12 §D step 12, §E step 15 — NOT PRODUCT-REVIEWED)', () => {
+  it('is a caring statement with a real crisis-line resource, no macros, no question', () => {
+    const rendered = renderTemplate('care_pause_entered');
+    expect(rendered).toContain('988');
+    expect(rendered).not.toContain('?');
+    expect(rendered.toLowerCase()).not.toMatch(/\bcal\b|protein|carbs|fat/);
+  });
+});
+
 describe('proactive_checkin (09 §E step 16)', () => {
   it('matches Build Spec §4.4\'s sample transcript exactly', () => {
     expect(renderTemplate('proactive_checkin')).toBe("How'd dinner go tonight?");

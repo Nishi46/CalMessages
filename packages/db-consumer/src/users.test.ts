@@ -132,6 +132,21 @@ describe('getActiveUsersForScheduling (09 breakdown §C step 7)', () => {
     expect(active.some((u) => u.id === created.id)).toBe(false);
   });
 
+  // 12 §D/§E: no code change needed for this — the existing
+  // `conversation_state = 'idle'` equality already excludes any other
+  // state, care_pause included, once the flagged-language transition sets
+  // it. This test exists to make that exclusion explicit and locked in,
+  // since without it the safety guardrail wouldn't actually stop nudges to
+  // a flagged user.
+  it('excludes a user in care_pause', async () => {
+    const phone = uniqueTestPhone();
+    const created = await createUser(phone);
+    await updateUserState(created.id, 'care_pause');
+
+    const active = await getActiveUsersForScheduling();
+    expect(active.some((u) => u.id === created.id)).toBe(false);
+  });
+
   // 12 §A step 3: the filter above was confirmed against a raw SQL write —
   // this confirms it holds now that paused_at is actually set through the
   // real updateUserState write path (12 §A step 4), not just direct SQL.

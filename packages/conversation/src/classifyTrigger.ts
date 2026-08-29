@@ -3,6 +3,7 @@ import type { Trigger } from './trigger.js';
 import { isCorrectionText } from './correctionPattern.js';
 import { isPauseText, isResumeText } from './pausePattern.js';
 import { isDeleteAccountText } from './deleteAccountPattern.js';
+import { isFlaggedLanguage } from './safetyGuardrailPattern.js';
 
 export interface InboundSignal {
   currentState: ConversationState;
@@ -28,6 +29,14 @@ const ONBOARDING_STATES: ConversationState[] = ['onboarding_q1', 'onboarding_q2'
 export function classifyTrigger(signal: InboundSignal): Trigger {
   if (!signal.hasText && !signal.hasPhoto) {
     return 'unhandled';
+  }
+
+  // 12 §D step 13: "Any state, on flagged language" pre-empts every other
+  // branch below, including delete — checked first of all of them, not just
+  // ahead of the state-specific ones. Safety outranks every other intent a
+  // message could otherwise be classified as.
+  if (signal.hasText && signal.text !== undefined && isFlaggedLanguage(signal.text)) {
+    return 'flagged_language';
   }
 
   // 12 §B step 5: checked ahead of every state-specific branch below — a

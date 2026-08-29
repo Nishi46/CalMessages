@@ -28,6 +28,17 @@ describe('resolveTransition (07 §A, breakdown steps 4-5)', () => {
     ['awaiting_checkout', 'delete', 'deleted', ['sendReply']],
     ['paused', 'delete', 'deleted', ['sendReply']],
     ['care_pause', 'delete', 'deleted', ['sendReply']],
+    ['new', 'flagged_language', 'care_pause', ['sendReply']],
+    ['onboarding_q1', 'flagged_language', 'care_pause', ['sendReply']],
+    ['onboarding_q2', 'flagged_language', 'care_pause', ['sendReply']],
+    ['onboarding_q3', 'flagged_language', 'care_pause', ['sendReply']],
+    ['idle', 'flagged_language', 'care_pause', ['sendReply']],
+    ['awaiting_clarification', 'flagged_language', 'care_pause', ['sendReply']],
+    ['awaiting_checkout', 'flagged_language', 'care_pause', ['sendReply']],
+    ['paused', 'flagged_language', 'care_pause', ['sendReply']],
+    // A second flagged message while already in care_pause still gets the
+    // caring reply again (self-transition), rather than silently no-op'ing.
+    ['care_pause', 'flagged_language', 'care_pause', ['sendReply']],
   ] as const)(
     '%s + %s -> %s',
     (fromState, trigger, expectedToState, expectedEffectTypes) => {
@@ -52,6 +63,7 @@ describe('resolveTransition (07 §A, breakdown steps 4-5)', () => {
     ['deleted', 'delete'],
     ['deleted', 'first_contact'],
     ['deleted', 'meal_content'],
+    ['deleted', 'flagged_language'],
   ] as const)('%s + %s falls back to a same-state no-op instead of throwing', (fromState, trigger) => {
     expect(() => resolveTransition(fromState, trigger)).not.toThrow();
 
@@ -85,6 +97,7 @@ describe('resolveTransition (07 §A, breakdown steps 4-5)', () => {
       'pause',
       'resume',
       'delete',
+      'flagged_language',
       'unhandled',
     ];
 
@@ -111,6 +124,7 @@ describe('resolveTransition (07 §A, breakdown steps 4-5)', () => {
       'pause',
       'resume',
       'delete',
+      'flagged_language',
       'unhandled',
     ];
 

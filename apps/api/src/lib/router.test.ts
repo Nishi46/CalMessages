@@ -2,6 +2,7 @@ import {
   createGoal,
   createMealLog,
   createUser,
+  getActiveUsersForScheduling,
   getDailyTotals,
   getOrCreateSubscriptionForUser,
   getPool,
@@ -1017,6 +1018,140 @@ describe('createInboundMessageHandler — delete (12 §B)', () => {
     const current = await getUserByPhone(phone);
     expect(current?.conversationState).toBe('idle');
     expect(current?.deletedRequestedAt).toBeNull();
+  });
+});
+
+// 12 §D: safety guardrail classifier. NOT PRODUCT-REVIEWED — see
+// safetyGuardrailPattern.ts and the care_pause_entered template's own
+// disclaimers. These tests lock in the *mechanism* (pre-emption, terminal
+// exclusion, scheduler suppression), not the specific keyword list or reply
+// copy, neither of which has product/clinical sign-off yet.
+describe('createInboundMessageHandler — safety guardrail (12 §D)', () => {
+  it('flagged language from idle moves straight to care_pause with the caring reply, not a meal log', async () => {
+    const phone = uniqueTestPhone();
+    const user = await createUser(phone);
+    await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
+    const sendClient = fakeSendClient();
+    const handleInboundMessage = createInboundMessageHandler({
+      sendClient,
+      visionProvider: noVisionProvider(),
+      textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
+    });
+
+    await handleInboundMessage({
+      userId: user.id,
+      text: 'I want to kill myself',
+      currentState: 'idle',
+    });
+
+    expect(sendClient.send).toHaveBeenCalledTimes(1);
+    const [, body] = sendClient.send.mock.calls[0] as [string, string];
+    expect(body).toContain('988');
+
+    const current = await getUserByPhone(phone);
+    expect(current?.conversationState).toBe('care_pause');
+
+    const { rows } = await getPool().query('SELECT * FROM meal_log WHERE user_id = $1', [user.id]);
+    expect(rows).toHaveLength(0);
+  });
+
+  it('pre-empts mid-onboarding: flagged language during onboarding_q1 still moves to care_pause', async () => {
+    const phone = uniqueTestPhone();
+    const user = await createUser(phone);
+    await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [
+      user.id,
+      'onboarding_q1',
+    ]);
+    const sendClient = fakeSendClient();
+    const handleInboundMessage = createInboundMessageHandler({
+      sendClient,
+      visionProvider: noVisionProvider(),
+      textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
+    });
+
+    await handleInboundMessage({
+      userId: user.id,
+      text: 'I am suicidal',
+      currentState: 'onboarding_q1',
+    });
+
+    const current = await getUserByPhone(phone);
+    expect(current?.conversationState).toBe('care_pause');
+  });
+
+  it('pre-empts delete: a message matching both patterns flags rather than deletes the account', async () => {
+    const phone = uniqueTestPhone();
+    const user = await createUser(phone);
+    await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
+    const sendClient = fakeSendClient();
+    const handleInboundMessage = createInboundMessageHandler({
+      sendClient,
+      visionProvider: noVisionProvider(),
+      textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
+    });
+
+    await handleInboundMessage({
+      userId: user.id,
+      text: 'delete my data, I want to kill myself',
+      currentState: 'idle',
+    });
+
+    const [, body] = sendClient.send.mock.calls[0] as [string, string];
+    expect(body).toContain('988');
+    const current = await getUserByPhone(phone);
+    expect(current?.conversationState).toBe('care_pause');
+    expect(current?.deletedRequestedAt).toBeNull();
+  });
+
+  it('a second flagged message while already in care_pause sends the caring reply again and stays in care_pause', async () => {
+    const phone = uniqueTestPhone();
+    const user = await createUser(phone);
+    await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [
+      user.id,
+      'care_pause',
+    ]);
+    const sendClient = fakeSendClient();
+    const handleInboundMessage = createInboundMessageHandler({
+      sendClient,
+      visionProvider: noVisionProvider(),
+      textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
+    });
+
+    await handleInboundMessage({
+      userId: user.id,
+      text: 'still thinking about suicide',
+      currentState: 'care_pause',
+    });
+
+    expect(sendClient.send).toHaveBeenCalledTimes(1);
+    const current = await getUserByPhone(phone);
+    expect(current?.conversationState).toBe('care_pause');
+  });
+
+  it('a user in care_pause is excluded from the scheduler (getActiveUsersForScheduling)', async () => {
+    const phone = uniqueTestPhone();
+    const user = await createUser(phone);
+    await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [user.id, 'idle']);
+    const sendClient = fakeSendClient();
+    const handleInboundMessage = createInboundMessageHandler({
+      sendClient,
+      visionProvider: noVisionProvider(),
+      textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
+    });
+
+    await handleInboundMessage({
+      userId: user.id,
+      text: 'I want to end my life',
+      currentState: 'idle',
+    });
+
+    const active = await getActiveUsersForScheduling();
+    expect(active.some((u) => u.id === user.id)).toBe(false);
   });
 });
 

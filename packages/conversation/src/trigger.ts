@@ -23,6 +23,12 @@
 // "from any state" (04 §6.1), ahead of every other branch in classifyTrigger,
 // since a data-deletion request has to work regardless of where the user's
 // conversation happens to be.
+//
+// flagged_language (12 §D step 12-13) outranks every other branch in
+// classifyTrigger, including delete — 04 §6.1: "Any state, on flagged
+// language" pre-empts everything else for that inbound message. See
+// safetyGuardrailPattern.ts for the NOT PRODUCT-REVIEWED disclaimer on the
+// actual keyword list this trigger is classified from.
 export type Trigger =
   | 'first_contact'
   | 'onboarding_answer'
@@ -34,4 +40,5 @@ export type Trigger =
   | 'pause'
   | 'resume'
   | 'delete'
+  | 'flagged_language'
   | 'unhandled';

@@ -90,6 +90,22 @@ export const TEMPLATES = {
   // second one.
   delete_account_confirmed:
     "Got it — your data will be permanently deleted within 30 days, and I won't text you again after this.",
+
+  // --- Safety guardrail (Sprint 7 §D step 12, §E step 15) ---
+  // NOT PRODUCT-REVIEWED. The exact copy here — tone, phrasing, which
+  // resource(s) to list, whether 988 (the real US 988 Suicide & Crisis
+  // Lifeline, call or text) is the right/only resource for this product's
+  // audience — is exactly the "real decision the source docs don't make for
+  // you" that §E step 15 flags, same posture as step 12's keyword-list
+  // disclaimer in safetyGuardrailPattern.ts. This exists so §D's transition
+  // has a real reply to send rather than shipping silence on a safety flag,
+  // not because the copy itself has been reviewed. Deliberately no macros,
+  // no meal-logging language, no question — a caring statement, same "never
+  // re-prompted or talked out of" posture as delete_account_confirmed.
+  care_pause_entered:
+    "I noticed something in your last message that concerned me, so I've paused check-ins for now. " +
+    "If you're struggling, the 988 Suicide & Crisis Lifeline (call or text 988) is available 24/7. " +
+    "You can still text me anytime.",
 } as const satisfies Record<string, string>;
 
 export type TemplateId = keyof typeof TEMPLATES;
