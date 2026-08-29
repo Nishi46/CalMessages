@@ -370,10 +370,14 @@ async function finishMealContent(
     return;
   }
 
-  // 12 §A step 2: a paused user's meal-logging turn has to land back in
-  // 'paused', not 'idle' — meal_content only ever classifies from those two
-  // states (classifyTrigger.ts), so this is exhaustive.
-  const fromState: ConversationState = payload.currentState === 'paused' ? 'paused' : 'idle';
+  // 12 §A step 2 / 12 §E step 15: a paused or care_pause user's
+  // meal-logging turn has to land back in the state it started from —
+  // meal_content only ever classifies from these three states
+  // (classifyTrigger.ts), so this is exhaustive.
+  const fromState: ConversationState =
+    payload.currentState === 'paused' || payload.currentState === 'care_pause'
+      ? payload.currentState
+      : 'idle';
   const transition = resolveMealContentTransition(candidate, fromState);
   let heldContext: PendingContext | undefined;
   let crossedFreeTierLimit = false;
@@ -431,8 +435,11 @@ async function handleCorrection(payload: RouterHandoffPayload, deps: RouterDeps)
   // Checked before falling through to a value-replacement correction
   // (09 §E step 23) — "delete that" carries no replacement value to parse.
   const intent: CorrectionIntent = isDeleteText(text) ? 'delete' : 'correct';
-  // 12 §A step 2: same paused/idle round-trip as finishMealContent above.
-  const fromState: ConversationState = payload.currentState === 'paused' ? 'paused' : 'idle';
+  // 12 §A step 2 / 12 §E step 15: same round-trip as finishMealContent above.
+  const fromState: ConversationState =
+    payload.currentState === 'paused' || payload.currentState === 'care_pause'
+      ? payload.currentState
+      : 'idle';
   const transition = resolveCorrectionTransition(resolution, intent, fromState);
   let heldContextPatch: Record<string, unknown> | undefined;
 

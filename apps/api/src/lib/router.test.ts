@@ -1155,6 +1155,137 @@ describe('createInboundMessageHandler — safety guardrail (12 §D)', () => {
   });
 });
 
+// 12 §E: care_pause behavior. NOT PRODUCT-REVIEWED — see care_pause_logged's
+// own disclaimer. These tests lock in the *mechanism* (logging still
+// happens, the reply never shows macros, no keyword exits the state), not
+// the specific reply copy, which doesn't have product/clinical sign-off.
+describe('createInboundMessageHandler — care_pause behavior (12 §E)', () => {
+  it('a meal photo while in care_pause still writes the log, but replies with no numbers', async () => {
+    const phone = uniqueTestPhone();
+    const user = await createUser(phone);
+    await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [
+      user.id,
+      'care_pause',
+    ]);
+    const sendClient = fakeSendClient();
+    const candidate = fakeCandidate({ confidence: 'high' });
+    const handleInboundMessage = createInboundMessageHandler({
+      sendClient,
+      visionProvider: fakeVisionProvider(vi.fn().mockResolvedValue(candidate)),
+      textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
+    });
+
+    await handleInboundMessage({
+      userId: user.id,
+      photoKey: 'meal-photos/care-pause-1',
+      currentState: 'care_pause',
+    });
+
+    expect(sendClient.send).toHaveBeenCalledTimes(1);
+    const [, body] = sendClient.send.mock.calls[0] as [string, string];
+    expect(body).not.toMatch(/\d/);
+    expect(body.toLowerCase()).not.toMatch(/\bcal\b|protein|carbs|fat/);
+
+    const current = await getUserByPhone(phone);
+    expect(current?.conversationState).toBe('care_pause');
+
+    const { rows } = await getPool().query<{ calories: number }>(
+      'SELECT calories FROM meal_log WHERE user_id = $1',
+      [user.id],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].calories).toBe(210);
+  });
+
+  it('a low-confidence photo while in care_pause still asks the clarifying question, not silence', async () => {
+    const phone = uniqueTestPhone();
+    const user = await createUser(phone);
+    await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [
+      user.id,
+      'care_pause',
+    ]);
+    const sendClient = fakeSendClient();
+    const candidate = fakeCandidate({ confidence: 'low' });
+    const handleInboundMessage = createInboundMessageHandler({
+      sendClient,
+      visionProvider: fakeVisionProvider(vi.fn().mockResolvedValue(candidate)),
+      textParser: noTextParser(),
+      createCheckoutLink: noCreateCheckoutLink(),
+    });
+
+    await handleInboundMessage({
+      userId: user.id,
+      photoKey: 'meal-photos/care-pause-2',
+      currentState: 'care_pause',
+    });
+
+    const [, body] = sendClient.send.mock.calls[0] as [string, string];
+    expect(body).toContain('What was it, roughly?');
+
+    const current = await getUserByPhone(phone);
+    expect(current?.conversationState).toBe('awaiting_clarification');
+  });
+
+  it('a correction while in care_pause writes it but replies with no numbers, and stays in care_pause', async () => {
+    const phone = uniqueTestPhone();
+    const user = await createUser(phone);
+    await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [
+      user.id,
+      'care_pause',
+    ]);
+    const today = computeLocalDate(new Date(), user.timezone);
+    await createMealLog(user.id, fakeCandidate({ calories: 300 }), 'photo', today);
+    const sendClient = fakeSendClient();
+    const replacement = fakeCandidate({ calories: 210 });
+    const handleInboundMessage = createInboundMessageHandler({
+      sendClient,
+      visionProvider: noVisionProvider(),
+      textParser: fakeTextParser(vi.fn().mockResolvedValue(replacement)),
+      createCheckoutLink: noCreateCheckoutLink(),
+    });
+
+    await handleInboundMessage({
+      userId: user.id,
+      text: 'that was actually 2 eggs not 3',
+      currentState: 'care_pause',
+    });
+
+    const [, body] = sendClient.send.mock.calls[0] as [string, string];
+    expect(body).not.toMatch(/\d/);
+    const current = await getUserByPhone(phone);
+    expect(current?.conversationState).toBe('care_pause');
+
+    const { rows } = await getPool().query(
+      'SELECT * FROM meal_log WHERE user_id = $1 AND corrected_from_id IS NOT NULL',
+      [user.id],
+    );
+    expect(rows).toHaveLength(1);
+  });
+
+  it('"resume" or "pause" while in care_pause does not exit — treated as ordinary (non-food) text', async () => {
+    const phone = uniqueTestPhone();
+    const user = await createUser(phone);
+    await getPool().query('UPDATE "user" SET conversation_state = $2 WHERE id = $1', [
+      user.id,
+      'care_pause',
+    ]);
+    const sendClient = fakeSendClient();
+    const nonFood = fakeCandidate({ isFood: false, rejectionReason: 'non_food', items: [] });
+    const handleInboundMessage = createInboundMessageHandler({
+      sendClient,
+      visionProvider: noVisionProvider(),
+      textParser: fakeTextParser(vi.fn().mockResolvedValue(nonFood)),
+      createCheckoutLink: noCreateCheckoutLink(),
+    });
+
+    await handleInboundMessage({ userId: user.id, text: 'resume', currentState: 'care_pause' });
+
+    const current = await getUserByPhone(phone);
+    expect(current?.conversationState).toBe('care_pause');
+  });
+});
+
 // 09 §G step 30: the whole sprint's fast path, told as continuous
 // user-facing scripts rather than isolated assertions — each turn re-reads
 // the user's persisted state the way the real webhook route does, so a

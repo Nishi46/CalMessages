@@ -106,6 +106,14 @@ export const TEMPLATES = {
     "I noticed something in your last message that concerned me, so I've paused check-ins for now. " +
     "If you're struggling, the 988 Suicide & Crisis Lifeline (call or text 988) is available 24/7. " +
     "You can still text me anytime.",
+  // 12 §E step 15: "meal-logging triggers received while in care_pause get
+  // this template instead of the normal macro reply" — same
+  // NOT-PRODUCT-REVIEWED posture as care_pause_entered above, not a
+  // reviewed clinical/product copy decision. Deliberately doesn't repeat
+  // the full crisis-resource message on every single food photo (that's
+  // already been said once, on entry) — just a brief, warm acknowledgment
+  // that the log still landed, with no numbers in it anywhere.
+  care_pause_logged: "Got it, logged — no numbers for now. I'm still here whenever you want to talk.",
 } as const satisfies Record<string, string>;
 
 export type TemplateId = keyof typeof TEMPLATES;

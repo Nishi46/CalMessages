@@ -134,6 +134,14 @@ describe('care_pause_entered (12 §D step 12, §E step 15 — NOT PRODUCT-REVIEW
   });
 });
 
+describe('care_pause_logged (12 §E step 15 — NOT PRODUCT-REVIEWED)', () => {
+  it('acknowledges the log with no macros, no question, and no placeholders', () => {
+    const rendered = renderTemplate('care_pause_logged');
+    expect(rendered).not.toContain('?');
+    expect(rendered.toLowerCase()).not.toMatch(/\bcal\b|protein|carbs|fat|\{/);
+  });
+});
+
 describe('proactive_checkin (09 §E step 16)', () => {
   it('matches Build Spec §4.4\'s sample transcript exactly', () => {
     expect(renderTemplate('proactive_checkin')).toBe("How'd dinner go tonight?");

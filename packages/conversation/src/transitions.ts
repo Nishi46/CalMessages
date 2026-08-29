@@ -164,7 +164,10 @@ export function resolveTransition(fromState: ConversationState, trigger: Trigger
 // 'paused', not 'idle', or the very next inbound message would misclassify
 // against the wrong state. Only the direct-write branch below is affected;
 // a low-confidence hold always goes to awaiting_clarification regardless of
-// where it started, same as idle.
+// where it started, same as idle. It's also already macro-free ("Got a
+// partial read. What was it, roughly?"), so care_pause (12 §E step 15) needs
+// no separate copy for this branch — only the direct-write reply below
+// actually shows numbers.
 export function resolveMealContentTransition(
   candidate: MealCandidate,
   fromState: ConversationState = 'idle',
@@ -190,11 +193,16 @@ export function resolveMealContentTransition(
     };
   }
 
+  // 12 §E step 15 (recommended reading of 04 §11, since the source docs
+  // don't say either way): the log still gets written — writeMealLog fires
+  // exactly as it does from idle/paused — only the reply swaps to the
+  // non-macro care_pause_logged template. Discarding a real log here would
+  // be a bigger risk than a row nobody currently reads.
   return {
     toState: fromState,
     sideEffects: [
       { type: 'writeMealLog' },
-      { type: 'sendReply', template: 'meal_logged' },
+      { type: 'sendReply', template: fromState === 'care_pause' ? 'care_pause_logged' : 'meal_logged' },
     ],
   };
 }
@@ -220,6 +228,10 @@ export type CorrectionIntent = 'correct' | 'delete';
 //
 // fromState (12 §A step 2) mirrors resolveMealContentTransition's — a
 // paused user correcting/deleting a log returns to 'paused', not 'idle'.
+// The disambiguation question below is already macro-free, same reasoning
+// as resolveMealContentTransition's low-confidence branch — only the two
+// direct-write replies (correct/delete) show numbers, so only those two
+// swap to care_pause_logged (12 §E step 15).
 export function resolveCorrectionTransition(
   match: CorrectionMatch,
   intent: CorrectionIntent = 'correct',
@@ -243,7 +255,7 @@ export function resolveCorrectionTransition(
       toState: fromState,
       sideEffects: [
         { type: 'deleteMealLog', targetLogId: match.targetLogId },
-        { type: 'sendReply', template: 'delete_confirmed' },
+        { type: 'sendReply', template: fromState === 'care_pause' ? 'care_pause_logged' : 'delete_confirmed' },
       ],
     };
   }
@@ -252,7 +264,10 @@ export function resolveCorrectionTransition(
     toState: fromState,
     sideEffects: [
       { type: 'writeCorrection', targetLogId: match.targetLogId },
-      { type: 'sendReply', template: 'correction_confirmed' },
+      {
+        type: 'sendReply',
+        template: fromState === 'care_pause' ? 'care_pause_logged' : 'correction_confirmed',
+      },
     ],
   };
 }

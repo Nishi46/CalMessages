@@ -135,6 +135,38 @@ describe('resolveTransition (07 §A, breakdown steps 4-5)', () => {
       expect(transition.isFallback).toBe(true);
     }
   });
+
+  // 12 §E step 16 (04 §11: "not a bug to auto-heal"): no trigger returns a
+  // flagged user to normal operation automatically — the only state a
+  // trigger can move a care_pause user *to* is 'care_pause' itself (a
+  // self-loop, e.g. a second flagged message or ordinary meal-logging text)
+  // or 'deleted' (delete is a deliberate account-termination action, not a
+  // return to normal — it's excluded from "back to normal" by definition,
+  // not an oversight in this test). Nothing here builds the admin/dashboard
+  // tooling step 16 notes doesn't exist yet — this only confirms the gap is
+  // real and total: no keyword, no timer, no lookup-table row gets a
+  // care_pause user back to 'idle'.
+  it('care_pause never auto-exits back to normal operation, for any trigger', () => {
+    const triggers: Trigger[] = [
+      'first_contact',
+      'onboarding_answer',
+      'meal_content',
+      'clarification_answer',
+      'correction',
+      'limit_crossed',
+      'checkout_completed',
+      'pause',
+      'resume',
+      'delete',
+      'flagged_language',
+      'unhandled',
+    ];
+
+    for (const trigger of triggers) {
+      const transition = resolveTransition('care_pause', trigger);
+      expect(['care_pause', 'deleted']).toContain(transition.toState);
+    }
+  });
 });
 
 describe('resolveMealContentTransition (09 §C, breakdown step 11)', () => {
@@ -205,6 +237,25 @@ describe('resolveMealContentTransition (09 §C, breakdown step 11)', () => {
 
     expect(transition.toState).toBe('awaiting_clarification');
   });
+
+  // 12 §E step 15: logs silently (writeMealLog still fires), but the reply
+  // never surfaces macros — care_pause_logged instead of meal_logged.
+  it('returns to care_pause and swaps to the non-macro reply on high/medium confidence when fromState is care_pause', () => {
+    const transition = resolveMealContentTransition(candidate({ confidence: 'high' }), 'care_pause');
+
+    expect(transition.toState).toBe('care_pause');
+    expect(transition.sideEffects).toEqual([
+      { type: 'writeMealLog' },
+      { type: 'sendReply', template: 'care_pause_logged' },
+    ]);
+  });
+
+  it('still holds for the (already macro-free) clarifying question on low confidence when fromState is care_pause', () => {
+    const transition = resolveMealContentTransition(candidate({ confidence: 'low' }), 'care_pause');
+
+    expect(transition.toState).toBe('awaiting_clarification');
+    expect(transition.sideEffects[1]).toMatchObject({ template: 'meal_clarifying_question' });
+  });
 });
 
 describe('resolveCorrectionTransition (09 §C, breakdown step 13)', () => {
@@ -271,5 +322,49 @@ describe('resolveCorrectionTransition — paused fromState (12 §A step 2)', () 
     const transition = resolveCorrectionTransition({ kind: 'single', targetLogId: 'log-1' }, 'delete', 'paused');
 
     expect(transition.toState).toBe('paused');
+  });
+});
+
+describe('resolveCorrectionTransition — care_pause fromState (12 §E step 15)', () => {
+  it('returns to care_pause and swaps to the non-macro reply on a single-match correction', () => {
+    const transition = resolveCorrectionTransition(
+      { kind: 'single', targetLogId: 'log-1' },
+      'correct',
+      'care_pause',
+    );
+
+    expect(transition.toState).toBe('care_pause');
+    expect(transition.sideEffects).toEqual([
+      { type: 'writeCorrection', targetLogId: 'log-1' },
+      { type: 'sendReply', template: 'care_pause_logged' },
+    ]);
+  });
+
+  it('returns to care_pause and swaps to the non-macro reply on a single-match delete', () => {
+    const transition = resolveCorrectionTransition(
+      { kind: 'single', targetLogId: 'log-1' },
+      'delete',
+      'care_pause',
+    );
+
+    expect(transition.toState).toBe('care_pause');
+    expect(transition.sideEffects).toEqual([
+      { type: 'deleteMealLog', targetLogId: 'log-1' },
+      { type: 'sendReply', template: 'care_pause_logged' },
+    ]);
+  });
+
+  it('still holds for the (already macro-free) disambiguation question on multiple matches', () => {
+    const transition = resolveCorrectionTransition(
+      { kind: 'multiple', candidateLogIds: ['log-1', 'log-2'] },
+      'correct',
+      'care_pause',
+    );
+
+    expect(transition.toState).toBe('awaiting_clarification');
+    expect(transition.sideEffects[1]).toEqual({
+      type: 'sendReply',
+      template: 'correction_disambiguation',
+    });
   });
 });

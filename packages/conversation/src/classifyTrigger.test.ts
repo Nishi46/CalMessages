@@ -24,8 +24,8 @@ describe('classifyTrigger (07 §B, breakdown step 6)', () => {
     },
   );
 
-  it('classifies inbound in states with no Sprint 4/7 wiring as unhandled', () => {
-    const states: ConversationState[] = ['awaiting_checkout', 'care_pause', 'deleted'];
+  it('classifies inbound in states with no Sprint 4/7/12 wiring as unhandled', () => {
+    const states: ConversationState[] = ['awaiting_checkout', 'deleted'];
 
     for (const currentState of states) {
       expect(classifyTrigger({ currentState, hasText: true, hasPhoto: false })).toBe('unhandled');
@@ -165,6 +165,30 @@ describe('classifyTrigger (07 §B, breakdown step 6)', () => {
     ).toBe('meal_content');
     expect(
       classifyTrigger({ currentState: 'idle', hasText: true, hasPhoto: false, text: 'resume' }),
+    ).toBe('meal_content');
+  });
+
+  it('classifies a photo or non-correction text while in care_pause as meal_content (12 §E step 15)', () => {
+    expect(classifyTrigger({ currentState: 'care_pause', hasText: false, hasPhoto: true })).toBe(
+      'meal_content',
+    );
+    expect(
+      classifyTrigger({ currentState: 'care_pause', hasText: true, hasPhoto: false, text: 'chicken and rice' }),
+    ).toBe('meal_content');
+  });
+
+  it('classifies care_pause-state text matching the correction pattern as correction, same as idle', () => {
+    expect(
+      classifyTrigger({ currentState: 'care_pause', hasText: true, hasPhoto: false, text: 'undo that' }),
+    ).toBe('correction');
+  });
+
+  it('does not exit care_pause via "resume" — not auto-exited by any keyword (12 §E step 16)', () => {
+    expect(
+      classifyTrigger({ currentState: 'care_pause', hasText: true, hasPhoto: false, text: 'resume' }),
+    ).toBe('meal_content');
+    expect(
+      classifyTrigger({ currentState: 'care_pause', hasText: true, hasPhoto: false, text: 'pause' }),
     ).toBe('meal_content');
   });
 

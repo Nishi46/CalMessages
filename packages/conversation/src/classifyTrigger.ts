@@ -60,11 +60,20 @@ export function classifyTrigger(signal: InboundSignal): Trigger {
     return 'clarification_answer';
   }
 
-  // idle and paused are both logging-capable (12 §A step 2: "logging still
-  // works if the user texts in" while paused) — pause/resume are only
-  // checked in the one direction each can actually fire from, ahead of the
-  // correction/meal_content checks both states otherwise share.
-  if (signal.currentState === 'idle' || signal.currentState === 'paused') {
+  // idle, paused, and care_pause are all logging-capable (12 §A step 2:
+  // "logging still works if the user texts in" while paused; 12 §E step 15:
+  // meal-logging triggers still fire while in care_pause, just with a
+  // different reply — see resolveMealContentTransition/
+  // resolveCorrectionTransition). pause/resume are only checked in the one
+  // direction each can actually fire from — care_pause matches neither, on
+  // purpose: it's "not auto-exited by any timer or keyword" (12 §E step 16),
+  // so texting "resume" here falls through to meal_content like any other
+  // non-food text, rather than a state-machine row existing to catch it.
+  if (
+    signal.currentState === 'idle' ||
+    signal.currentState === 'paused' ||
+    signal.currentState === 'care_pause'
+  ) {
     if (signal.hasText && signal.text !== undefined) {
       if (signal.currentState === 'idle' && isPauseText(signal.text)) {
         return 'pause';
