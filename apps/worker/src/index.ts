@@ -3,6 +3,7 @@ import { renderTemplate } from '@tally/conversation';
 import { getPool } from '@tally/db-consumer';
 import { createTwilioSendClient, sendMessage } from '@tally/messaging';
 import { createS3ObjectStore } from '@tally/object-store';
+import { consoleDeliverabilityNotifier, runDeliverabilityAlertTick } from './deliverabilityAlert.js';
 import { DEFAULT_PURGE_GRACE_PERIOD_MS, runDeletionPurgeTick } from './deletionPurge.js';
 import { runEvaluationLoop } from './evaluationLoop.js';
 import { createNudgeJobProcessor } from './nudgeJobProcessor.js';
@@ -87,6 +88,50 @@ if (!Number.isFinite(purgeGracePeriodMs) || purgeGracePeriodMs <= 0) {
   throw new Error(`PURGE_GRACE_PERIOD_MS must be a positive number, got: ${process.env.PURGE_GRACE_PERIOD_MS}`);
 }
 
+// 13 breakdown §B step 4 (04 §12, Build Spec §7): a P0 incident mechanism,
+// not dashboard-only — checked on the same cadence as the nudge scheduler
+// rather than reconciliation/purge's once-daily sweep, since a deliverability
+// collapse needs to surface within minutes, not up to a day later.
+const DELIVERABILITY_ALERT_TICK_MS = 15 * 60 * 1000;
+const deliverabilityAlertTickMs = process.env.DELIVERABILITY_ALERT_TICK_MS
+  ? Number(process.env.DELIVERABILITY_ALERT_TICK_MS)
+  : DELIVERABILITY_ALERT_TICK_MS;
+if (!Number.isFinite(deliverabilityAlertTickMs) || deliverabilityAlertTickMs <= 0) {
+  throw new Error(
+    `DELIVERABILITY_ALERT_TICK_MS must be a positive number, got: ${process.env.DELIVERABILITY_ALERT_TICK_MS}`,
+  );
+}
+// The trailing window the failure rate is computed over — wider than the
+// tick interval so a single tick's window still has a meaningful sample
+// size, not just whatever trickled in since the last check.
+const DELIVERABILITY_ALERT_WINDOW_MS = 60 * 60 * 1000;
+const deliverabilityAlertWindowMs = process.env.DELIVERABILITY_ALERT_WINDOW_MS
+  ? Number(process.env.DELIVERABILITY_ALERT_WINDOW_MS)
+  : DELIVERABILITY_ALERT_WINDOW_MS;
+if (!Number.isFinite(deliverabilityAlertWindowMs) || deliverabilityAlertWindowMs <= 0) {
+  throw new Error(
+    `DELIVERABILITY_ALERT_WINDOW_MS must be a positive number, got: ${process.env.DELIVERABILITY_ALERT_WINDOW_MS}`,
+  );
+}
+// Placeholder default pending a real incident-response decision (13
+// breakdown §B step 5 flags the alert destination itself as undecided by
+// 01-07; this number is the same kind of gap) — 20% of outbound messages
+// failing/undelivered in the trailing window is well past ordinary carrier
+// noise, but nobody has actually signed off on this threshold.
+const DELIVERABILITY_ALERT_FAILURE_RATE_THRESHOLD = 0.2;
+const deliverabilityAlertFailureRateThreshold = process.env.DELIVERABILITY_ALERT_FAILURE_RATE_THRESHOLD
+  ? Number(process.env.DELIVERABILITY_ALERT_FAILURE_RATE_THRESHOLD)
+  : DELIVERABILITY_ALERT_FAILURE_RATE_THRESHOLD;
+if (
+  !Number.isFinite(deliverabilityAlertFailureRateThreshold) ||
+  deliverabilityAlertFailureRateThreshold <= 0 ||
+  deliverabilityAlertFailureRateThreshold > 1
+) {
+  throw new Error(
+    `DELIVERABILITY_ALERT_FAILURE_RATE_THRESHOLD must be a number in (0, 1], got: ${process.env.DELIVERABILITY_ALERT_FAILURE_RATE_THRESHOLD}`,
+  );
+}
+
 const connection = createRedisConnection(redisUrl);
 const nudgeQueue = createNudgeQueue(connection);
 
@@ -116,6 +161,12 @@ async function runDeletionPurgeTickNow(): Promise<void> {
   await runDeletionPurgeTick(objectStore, new Date(), purgeGracePeriodMs);
 }
 
+async function runDeliverabilityAlertTickNow(): Promise<void> {
+  await runDeliverabilityAlertTick(consoleDeliverabilityNotifier, new Date(), deliverabilityAlertWindowMs, {
+    failureRateThreshold: deliverabilityAlertFailureRateThreshold,
+  });
+}
+
 let leadership: SchedulerLeadership | undefined;
 let tick: TickHandle | undefined;
 // 11 breakdown §E step 16: rides the same leadership the nudge scheduler
@@ -132,16 +183,23 @@ let reconciliationTick: TickHandle | undefined;
 // keeps an already-purged user from being reprocessed), so it rides the same
 // leadership election rather than a third lock.
 let purgeTick: TickHandle | undefined;
+// 13 breakdown §B step 4: same rationale again — a read-only threshold check
+// that only ever logs is harmless run twice by two leaders in a
+// leadership-transition window, so this rides the same election too rather
+// than standing up a fourth lock for what is, mechanically, the same kind of
+// job as reconciliation/purge.
+let deliverabilityAlertTick: TickHandle | undefined;
 
 async function start(): Promise<void> {
   leadership = await tryAcquireSchedulerLeadership(getPool());
   if (leadership.isLeader) {
     console.log(
-      '[worker] acquired scheduler leadership; starting evaluation loop, reconciliation, and purge ticks',
+      '[worker] acquired scheduler leadership; starting evaluation loop, reconciliation, purge, and deliverability-alert ticks',
     );
     tick = startPeriodicTick(schedulerTickMs, runSchedulerTick);
     reconciliationTick = startPeriodicTick(reconciliationTickMs, runReconciliationTickNow);
     purgeTick = startPeriodicTick(purgeTickMs, runDeletionPurgeTickNow);
+    deliverabilityAlertTick = startPeriodicTick(deliverabilityAlertTickMs, runDeliverabilityAlertTickNow);
   } else {
     console.log('[worker] scheduler leadership held elsewhere; running queue consumer only');
   }
@@ -155,6 +213,7 @@ async function shutdown(): Promise<void> {
   tick?.stop();
   reconciliationTick?.stop();
   purgeTick?.stop();
+  deliverabilityAlertTick?.stop();
   await nudgeWorker.close();
   await nudgeQueue.close();
   await leadership?.release();

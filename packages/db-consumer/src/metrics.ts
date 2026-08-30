@@ -244,6 +244,23 @@ export interface DeliverabilityResult {
 
 const FAILURE_STATUSES = ['failed', 'undelivered'];
 
+function rowsToDeliverabilityResult(rows: Array<{ status: string | null; count: number }>): DeliverabilityResult {
+  const byStatus: Record<string, number> = {};
+  let totalOutbound = 0;
+  let failures = 0;
+  for (const row of rows) {
+    const status = row.status ?? 'unknown';
+    byStatus[status] = row.count;
+    totalOutbound += row.count;
+    if (FAILURE_STATUSES.includes(status)) failures += row.count;
+  }
+  return {
+    totalOutbound,
+    byStatus,
+    failureRate: totalOutbound > 0 ? failures / totalOutbound : null,
+  };
+}
+
 // 04 §12: "message_event.delivery_status distribution ... by carrier (Twilio
 // exposes carrier info on lookup)." The carrier half isn't implemented —
 // message_event (04 §3.1) has no carrier column, and nothing in this schema
@@ -259,18 +276,28 @@ export async function getMessageDeliverability(): Promise<DeliverabilityResult> 
      WHERE direction = 'outbound'
      GROUP BY delivery_status`,
   );
-  const byStatus: Record<string, number> = {};
-  let totalOutbound = 0;
-  let failures = 0;
-  for (const row of rows) {
-    const status = row.status ?? 'unknown';
-    byStatus[status] = row.count;
-    totalOutbound += row.count;
-    if (FAILURE_STATUSES.includes(status)) failures += row.count;
-  }
-  return {
-    totalOutbound,
-    byStatus,
-    failureRate: totalOutbound > 0 ? failures / totalOutbound : null,
-  };
+  return rowsToDeliverabilityResult(rows);
+}
+
+// 13 breakdown §B step 4: getMessageDeliverability above is an all-time
+// snapshot, matching 04 §12's formula literally — but the alerting check
+// needs the *recent* rate ("comparing the recent ... rate against a
+// threshold"), not an all-time average that a P0 incident an hour ago would
+// take days to visibly move. Trailing window ending at `asOf`, same posture
+// as getMealsLoggedPerActiveUser(asOf): a caller-supplied instant rather than
+// SQL now(), so the periodic alert tick can drive this deterministically.
+export async function getRecentMessageDeliverability(
+  windowMs: number,
+  asOf: Date = new Date(),
+): Promise<DeliverabilityResult> {
+  const { rows } = await getPool().query<{ status: string | null; count: number }>(
+    `SELECT delivery_status AS status, COUNT(*)::int AS count
+     FROM message_event
+     WHERE direction = 'outbound'
+       AND sent_at >= $1::timestamptz - ($2 * INTERVAL '1 millisecond')
+       AND sent_at < $1::timestamptz
+     GROUP BY delivery_status`,
+    [asOf.toISOString(), windowMs],
+  );
+  return rowsToDeliverabilityResult(rows);
 }

@@ -8,6 +8,7 @@ import {
   getMealsLoggedPerActiveUser,
   getMessageDeliverability,
   getNudgeResponseRate,
+  getRecentMessageDeliverability,
   getRetentionCohort,
   getTimeToFirstLog,
 } from './metrics.js';
@@ -376,6 +377,50 @@ describe('getMessageDeliverability (04 §12)', () => {
     expect((after.byStatus.delivered ?? 0) - (before.byStatus.delivered ?? 0)).toBe(2);
     expect((after.byStatus.failed ?? 0) - (before.byStatus.failed ?? 0)).toBe(1);
     expect((after.byStatus.undelivered ?? 0) - (before.byStatus.undelivered ?? 0)).toBe(1);
+  });
+});
+
+describe('getRecentMessageDeliverability (13 breakdown §B step 4)', () => {
+  async function insertOutboundAt(userId: string, sentAt: string, status: string): Promise<void> {
+    await getPool().query(
+      `INSERT INTO message_event (user_id, direction, type, sent_at, delivery_status)
+       VALUES ($1, 'outbound', 'log_reply', $2::timestamptz, $3)`,
+      [userId, sentAt, status],
+    );
+  }
+
+  it('only counts outbound messages within the trailing window ending at asOf', async () => {
+    const anchor = randomAnchorDate();
+    const user = await createUser(uniqueTestPhone());
+    const within = new Date(anchor.getTime() - 10 * 60 * 1000).toISOString(); // 10 min before asOf
+    const tooOld = new Date(anchor.getTime() - 2 * 60 * 60 * 1000).toISOString(); // 2h before asOf
+    const atAsOf = anchor.toISOString(); // >= asOf, excluded
+    await insertOutboundAt(user.id, within, 'failed');
+    await insertOutboundAt(user.id, within, 'delivered');
+    await insertOutboundAt(user.id, tooOld, 'failed');
+    await insertOutboundAt(user.id, atAsOf, 'failed');
+
+    const result = await getRecentMessageDeliverability(60 * 60 * 1000, anchor);
+
+    expect(result.totalOutbound).toBe(2);
+    expect(result.byStatus.failed).toBe(1);
+    expect(result.byStatus.delivered).toBe(1);
+    expect(result.failureRate).toBeCloseTo(0.5);
+  });
+
+  it('excludes inbound messages from the window', async () => {
+    const anchor = randomAnchorDate();
+    const user = await createUser(uniqueTestPhone());
+    await getPool().query(
+      `INSERT INTO message_event (user_id, direction, type, sent_at, delivery_status)
+       VALUES ($1, 'inbound', 'log_reply', $2::timestamptz, 'received')`,
+      [user.id, new Date(anchor.getTime() - 60_000).toISOString()],
+    );
+
+    const result = await getRecentMessageDeliverability(60 * 60 * 1000, anchor);
+
+    expect(result.totalOutbound).toBe(0);
+    expect(result.failureRate).toBeNull();
   });
 });
 
